@@ -1,21 +1,54 @@
 #include "runway_leds.h"
 
 static CRGB leds[NUM_LEDS];
+static bool has_had_event = false;
+
+// Precomputed normalized physical distance along runway centerline (0.0f to 1.0f)
+// Derived directly from the Altium Pick and Place CAD coordinates.
+// Guarantees constant linear mm/s velocity down every runway regardless of LED pitch or crossing gaps.
+
+static const float norm_12R_30L[26] = {
+    0.0000f, 0.0402f, 0.0804f, 0.1206f, 0.1600f, 0.2002f, 0.2404f, 0.2806f,
+    0.3199f, 0.3601f, 0.4003f, 0.4405f, 0.4799f, 0.5201f, 0.5603f, 0.6005f,
+    0.6399f, 0.6801f, 0.7203f, 0.7605f, 0.7998f, 0.8400f, 0.8802f, 0.9204f,
+    0.9598f, 1.0000f
+};
+
+static const float norm_30R_12L[20] = {
+    0.0000f, 0.0529f, 0.1057f, 0.1586f, 0.2104f, 0.2632f, 0.3161f, 0.3689f,
+    0.4207f, 0.4736f, 0.5264f, 0.5793f, 0.6311f, 0.6839f, 0.7368f, 0.7896f,
+    0.8414f, 0.8943f, 0.9471f, 1.0000f
+};
+
+static const float norm_22_4[18] = {
+    0.0000f, 0.0508f, 0.1658f, 0.2167f, 0.2675f, 0.3184f, 0.3704f, 0.4879f,
+    0.5387f, 0.5895f, 0.6404f, 0.6924f, 0.7445f, 0.7954f, 0.8462f, 0.8970f,
+    0.9491f, 1.0000f
+};
+
+static const float norm_35_17[20] = {
+    0.0000f, 0.0463f, 0.0927f, 0.1386f, 0.1850f, 0.3524f, 0.3988f, 0.4451f,
+    0.4914f, 0.5378f, 0.5837f, 0.6301f, 0.6764f, 0.7227f, 0.7687f, 0.8150f,
+    0.8614f, 0.9077f, 0.9537f, 1.0000f
+};
 
 // 4 Physical Runway Segments according to PCB Altium Pick and Place:
 // 1. Runway 12R - 30L: U2 - U27 (26 LEDs). Crossing at U12 (idx 10)
 // 2. Runway 30R - 12L: U28 - U47 (20 LEDs). Crossing at U41 (idx 39)
 // 3. Runway 22 - 4:   U48 - U65 (18 LEDs)
 // 4. Runway 35 - 17:  U66 - U85 (20 LEDs)
-// Default configuration: 30R & 30L active (primary MSP flow)
 static RunwaySegment runways[4] = {
-    {"12R", "30L", RW_12R_30L_START, RW_12R_30L_END, RW_12R_30L_CROSSING, RW_STATE_IDLE, false, 0.0f, 0.15f, true,  false, 0.0f},
-    {"30R", "12L", RW_30R_12L_START, RW_30R_12L_END, RW_30R_12L_CROSSING, RW_STATE_IDLE, true,  0.0f, 0.15f, true,  true,  0.0f},
-    {"22",  "4",   RW_22_4_START,    RW_22_4_END,    -1,                   RW_STATE_IDLE, true,  0.0f, 0.15f, false, true,  0.0f},
-    {"35",  "17",  RW_35_17_START,   RW_35_17_END,   -1,                   RW_STATE_IDLE, true,  0.0f, 0.15f, false, true,  0.0f}
+    {"12R", "30L", RW_12R_30L_START, RW_12R_30L_END, RW_12R_30L_CROSSING, RW_STATE_IDLE, false, 0.0f, 0.006f, false, false, 0.0f, norm_12R_30L},
+    {"30R", "12L", RW_30R_12L_START, RW_30R_12L_END, RW_30R_12L_CROSSING, RW_STATE_IDLE, true,  0.0f, 0.006f, false, true,  0.0f, norm_30R_12L},
+    {"22",  "4",   RW_22_4_START,    RW_22_4_END,    -1,                   RW_STATE_IDLE, true,  0.0f, 0.006f, false, true,  0.0f, norm_22_4},
+    {"35",  "17",  RW_35_17_START,   RW_35_17_END,   -1,                   RW_STATE_IDLE, true,  0.0f, 0.006f, false, true,  0.0f, norm_35_17}
 };
 
 static uint32_t last_frame_time = 0;
+
+bool hasHadEventOccurred() {
+    return has_had_event;
+}
 
 void initLeds() {
     FastLED.addLeds<WS2812B, PIN_LED_DATA, GRB>(leds, NUM_LEDS);
@@ -39,6 +72,18 @@ void resetAllRunwaysToIdle() {
     }
 }
 
+static bool isSameFlow(const char* rwA, const char* rwB) {
+    if (!rwA || !rwB) return false;
+    if (strcmp(rwA, rwB) == 0) return true;
+    // Parallel NW
+    if ((strcmp(rwA, "30R") == 0 || strcmp(rwA, "30L") == 0) &&
+        (strcmp(rwB, "30R") == 0 || strcmp(rwB, "30L") == 0)) return true;
+    // Parallel SE
+    if ((strcmp(rwA, "12R") == 0 || strcmp(rwA, "12L") == 0) &&
+        (strcmp(rwB, "12R") == 0 || strcmp(rwB, "12L") == 0)) return true;
+    return false;
+}
+
 void setRunwayState(const char* runway_name, const char* action_str, float progress) {
     if (!runway_name || !action_str) return;
 
@@ -51,6 +96,23 @@ void setRunwayState(const char* runway_name, const char* action_str, float progr
 
     if (op == RW_STATE_IDLE) return;
 
+    has_had_event = true;
+
+    // Enforce Airport Operational Flow Constraint:
+    // Only 1 single runway OR 1 parallel pair (12L/12R or 30R/30L) is active at once.
+    for (int j = 0; j < 4; j++) {
+        RunwaySegment& other = runways[j];
+        const char* active_other = other.moving_forward ? other.name_start : other.name_end;
+        if (other.state != RW_STATE_IDLE && !isSameFlow(runway_name, active_other)) {
+            other.state = RW_STATE_IDLE;
+            other.comet_norm = 0.0f;
+        }
+        const char* recent_other = other.recent_forward ? other.name_start : other.name_end;
+        if (!isSameFlow(runway_name, recent_other)) {
+            other.was_recently_used = false;
+        }
+    }
+
     for (int i = 0; i < 4; i++) {
         RunwaySegment& r = runways[i];
 
@@ -59,11 +121,11 @@ void setRunwayState(const char* runway_name, const char* action_str, float progr
             bool state_changed = (r.state != op || !r.moving_forward);
             r.state = op;
             r.moving_forward = true; // Rollout moves from start_idx -> end_idx
-            r.speed = 0.15f;         // 5.0s traverse speed for both landing and takeoff
+            r.speed_norm = 0.006f;   // 5.0s constant physical linear speed
             r.was_recently_used = true;
             r.recent_forward = true;
             if (state_changed) {
-                r.comet_pos = 0.0f; // Start comet at touchdown/takeoff roll threshold
+                r.comet_norm = 0.0f; // Start comet at touchdown/takeoff threshold
             }
             return;
         }
@@ -72,11 +134,11 @@ void setRunwayState(const char* runway_name, const char* action_str, float progr
             bool state_changed = (r.state != op || r.moving_forward);
             r.state = op;
             r.moving_forward = false; // Rollout moves from end_idx -> start_idx
-            r.speed = 0.15f;          // 5.0s traverse speed for both landing and takeoff
+            r.speed_norm = 0.006f;    // 5.0s constant physical linear speed
             r.was_recently_used = true;
             r.recent_forward = false;
             if (state_changed) {
-                r.comet_pos = 0.0f; // Start comet at touchdown/takeoff roll threshold
+                r.comet_norm = 0.0f; // Start comet at touchdown/takeoff threshold
             }
             return;
         }
@@ -93,6 +155,9 @@ static void addLedColor(uint8_t index, CRGB color) {
 void getRecentlyActiveRunwaysStr(char* out_buf, size_t buf_len) {
     if (!out_buf || buf_len == 0) return;
     out_buf[0] = '\0';
+    if (!has_had_event) {
+        return;
+    }
     bool first = true;
     for (int i = 0; i < 4; i++) {
         if (runways[i].was_recently_used) {
@@ -105,7 +170,7 @@ void getRecentlyActiveRunwaysStr(char* out_buf, size_t buf_len) {
         }
     }
     if (first) {
-        strncpy(out_buf, "30R, 30L", buf_len - 1);
+        strncpy(out_buf, "None", buf_len - 1);
     }
 }
 
@@ -127,6 +192,8 @@ void renderRunwayAnimations() {
         }
     }
 
+    const float TAIL_NORM = 0.25f; // Comet tail covers 25% of runway physical length
+
     for (int r = 0; r < 4; r++) {
         RunwaySegment& seg = runways[r];
         int count = (seg.end_idx - seg.start_idx) + 1;
@@ -141,70 +208,82 @@ void renderRunwayAnimations() {
             }
 
             // IDLE YELLOW STROBE:
-            // When airport has no active flights, run a slow yellow strobe down recently active runways
-            // as visual heartbeat indicating system is polling and showing current flow configuration
-            if (!has_active_flight && seg.was_recently_used) {
-                seg.idle_strobe_pos += 0.08f; // Slow relaxing strobe (~9s cycle with pause)
-                if (seg.idle_strobe_pos >= (float)(count + 12)) {
-                    seg.idle_strobe_pos = 0.0f; // Loop with pause
+            // Runs ONLY AFTER at least one flight event has occurred since startup
+            if (has_had_event && !has_active_flight && seg.was_recently_used) {
+                const float IDLE_TAIL = 0.20f;
+                seg.idle_strobe_norm += 0.003f; // ~10s slow relaxing glide
+                if (seg.idle_strobe_norm >= 1.35f) {
+                    seg.idle_strobe_norm = 0.0f; // Loop with pause
                 }
 
-                int s_pos = (int)seg.idle_strobe_pos;
-                for (int k = 0; k <= 4; k++) {
-                    int p = s_pos - k;
-                    if (p < 0 || p >= count) continue;
+                for (int i = 0; i < count; i++) {
+                    uint8_t strip_idx = seg.start_idx + i;
+                    float x = seg.recent_forward ? seg.led_norm_pos[i] : (1.0f - seg.led_norm_pos[i]);
+                    float dist_behind = seg.idle_strobe_norm - x;
 
-                    uint8_t strip_idx = seg.recent_forward ? (seg.start_idx + p) : (seg.end_idx - p);
-                    CRGB y_color;
-                    if (k == 0)      y_color = CRGB(255, 190, 0); // Warm Amber Head
-                    else if (k == 1) y_color = CRGB(160, 90, 0);  // Gold Tail
-                    else if (k == 2) y_color = CRGB(70, 30, 0);   // Dim Amber
-                    else             y_color = CRGB(20, 8, 0);    // Fade
-
-                    addLedColor(strip_idx, y_color);
+                    if (dist_behind >= 0.0f && dist_behind <= IDLE_TAIL) {
+                        float u = dist_behind / IDLE_TAIL; // 0.0 at head -> 1.0 at tail end
+                        CRGB y_color;
+                        if (u < 0.15f) {
+                            y_color = CRGB(255, 190, 0); // Warm amber head
+                        } else if (u < 0.50f) {
+                            float f = (u - 0.15f) / 0.35f;
+                            y_color = blend(CRGB(255, 190, 0), CRGB(160, 90, 0), (uint8_t)(f * 255));
+                        } else {
+                            float f = (u - 0.50f) / 0.50f;
+                            y_color = blend(CRGB(160, 90, 0), CRGB::Black, (uint8_t)(f * 255));
+                        }
+                        addLedColor(strip_idx, y_color);
+                    }
                 }
             }
         }
         else {
-            // ACTIVE FLIGHT COMET (Landing or Takeoff at 5.0s pace)
-            seg.comet_pos += seg.speed;
-            if (seg.comet_pos >= (float)(count + 6)) {
-                seg.comet_pos = 0.0f;
+            // ACTIVE FLIGHT COMET (Landing or Takeoff at constant 5.0s physical pace)
+            seg.comet_norm += seg.speed_norm;
+            if (seg.comet_norm >= 1.35f) {
+                seg.comet_norm = 0.0f;
             }
 
-            int head_step = (int)seg.comet_pos;
-            const int TAIL_LENGTH = 6;
+            for (int i = 0; i < count; i++) {
+                uint8_t strip_idx = seg.start_idx + i;
+                float x = seg.moving_forward ? seg.led_norm_pos[i] : (1.0f - seg.led_norm_pos[i]);
+                float dist_behind = seg.comet_norm - x;
 
-            for (int k = 0; k <= TAIL_LENGTH; k++) {
-                int pos = head_step - k;
-                if (pos < 0 || pos >= count) continue;
+                if (dist_behind >= 0.0f && dist_behind <= TAIL_NORM) {
+                    float u = dist_behind / TAIL_NORM; // 0.0 at head -> 1.0 at tail end
+                    CRGB led_color;
 
-                uint8_t strip_idx = seg.moving_forward 
-                    ? (seg.start_idx + pos) 
-                    : (seg.end_idx - pos);
+                    if (seg.state == RW_STATE_LANDING) {
+                        // Landing Comet: Crisp White Head + Emerald / Cyan Rollout Tail
+                        CRGB head_col = CRGB(255, 255, 255);
+                        CRGB mid_col  = CRGB(60, 240, 140);
+                        if (u < 0.15f) {
+                            led_color = head_col;
+                        } else if (u < 0.50f) {
+                            float f = (u - 0.15f) / 0.35f;
+                            led_color = blend(head_col, mid_col, (uint8_t)(f * 255));
+                        } else {
+                            float f = (u - 0.50f) / 0.50f;
+                            led_color = blend(mid_col, CRGB::Black, (uint8_t)(f * 255));
+                        }
+                    } else {
+                        // Takeoff Comet: Warm White Head + Amber / Gold Flame Tail
+                        CRGB head_col = CRGB(255, 255, 220);
+                        CRGB mid_col  = CRGB(255, 140, 0);
+                        if (u < 0.15f) {
+                            led_color = head_col;
+                        } else if (u < 0.50f) {
+                            float f = (u - 0.15f) / 0.35f;
+                            led_color = blend(head_col, mid_col, (uint8_t)(f * 255));
+                        } else {
+                            float f = (u - 0.50f) / 0.50f;
+                            led_color = blend(mid_col, CRGB::Black, (uint8_t)(f * 255));
+                        }
+                    }
 
-                CRGB led_color;
-
-                if (seg.state == RW_STATE_LANDING) {
-                    // Landing Comet (5.0s traverse): Crisp White Head + Emerald / Cyan Tail
-                    if (k == 0)      led_color = CRGB(255, 255, 255);
-                    else if (k == 1) led_color = CRGB(80, 255, 180);
-                    else if (k == 2) led_color = CRGB(0, 200, 100);
-                    else if (k == 3) led_color = CRGB(0, 120, 50);
-                    else if (k == 4) led_color = CRGB(0, 60, 25);
-                    else             led_color = CRGB(0, 20, 10);
+                    addLedColor(strip_idx, led_color);
                 }
-                else {
-                    // Takeoff Comet (5.0s traverse): Warm White Head + Amber / Gold Flame Tail
-                    if (k == 0)      led_color = CRGB(255, 255, 220);
-                    else if (k == 1) led_color = CRGB(255, 190, 0);
-                    else if (k == 2) led_color = CRGB(255, 120, 0);
-                    else if (k == 3) led_color = CRGB(200, 60, 0);
-                    else if (k == 4) led_color = CRGB(120, 25, 0);
-                    else             led_color = CRGB(40, 8, 0);
-                }
-
-                addLedColor(strip_idx, led_color);
             }
 
             // Illuminate runway threshold base

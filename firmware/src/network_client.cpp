@@ -106,12 +106,12 @@ bool pollTelemetryData(DisplayTelemetryData& out_telemetry) {
                 strncpy(f.flight_label, op["flight_label"] | (op["callsign"] | "Unknown"), sizeof(f.flight_label) - 1);
                 strncpy(f.aircraft_type, op["aircraft_type"] | "Unknown", sizeof(f.aircraft_type) - 1);
                 strncpy(f.route, op["route"] | "", sizeof(f.route) - 1);
-                f.altitude_ft = op["altitude_ft"] | 0;
-                f.speed_kts = op["speed_kts"] | 0;
                 out_telemetry.flight_count++;
             }
         }
     }
+
+    out_telemetry.has_had_event = hasHadEventOccurred();
 
     // Update summary string of recently active runways for the OLED idle display
     getRecentlyActiveRunwaysStr(out_telemetry.active_runways_summary, sizeof(out_telemetry.active_runways_summary));

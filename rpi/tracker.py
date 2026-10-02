@@ -255,4 +255,27 @@ class TelemetryTracker:
             print(f"  ✈ MATCH! [{aircraft_type}] {flight_label} | {action} on {rw_match['runway']} | "
                   f"Prog: {int(rw_match['t_progress']*100)}% | Spd: {speed_kts}kts, Alt: {alt_ft}ft")
 
+        # 5. Airport Operational Flow Constraint:
+        # Enforce that only 1 single runway OR 1 parallel pair (12L/12R or 30R/30L) is active at once.
+        VALID_FLOWS = [
+            {"30R", "30L"},  # Parallel NW flow
+            {"12L", "12R"},  # Parallel SE flow
+            {"4"},           # Crosswind NE
+            {"22"},          # Crosswind SW
+            {"17"},          # North-South S
+            {"35"}           # North-South N
+        ]
+        if len(active_operations) > 1:
+            best_matches = []
+            best_score = float('inf')
+            for flow in VALID_FLOWS:
+                matches = [op for op in active_operations if op["runway"] in flow]
+                if matches:
+                    # Score: prioritize more matched flights, then minimal cross-track offset
+                    score = (100 - len(matches) * 50) + sum(m["cross_track_m"] for m in matches) / len(matches)
+                    if score < best_score:
+                        best_score = score
+                        best_matches = matches
+            active_operations = best_matches if best_matches else [active_operations[0]]
+
         self.state.update(len(aircraft_list), active_operations, source_label)

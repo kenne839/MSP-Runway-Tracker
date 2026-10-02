@@ -18,11 +18,12 @@ struct RunwaySegment {
     int8_t crossing_idx;      // Crossing LED index (-1 if none)
     RunwayOpState state;      // IDLE, LANDING, TAKEOFF
     bool moving_forward;      // true: start_idx -> end_idx, false: end_idx -> start_idx
-    float comet_pos;          // Current position along length (0.0 to length - 1)
-    float speed;              // Position delta per frame
+    float comet_norm;         // Continuous position along physical length (0.0f to 1.35f)
+    float speed_norm;         // Progress delta per frame (constant physical velocity)
     bool was_recently_used;   // True if this runway was active in the current airport flow
     bool recent_forward;      // Direction of recent traffic flow
-    float idle_strobe_pos;    // Position for slow idle yellow heartbeat strobe
+    float idle_strobe_norm;   // Continuous position for slow idle yellow heartbeat strobe
+    const float* led_norm_pos;// Precomputed normalized physical distance for each LED in segment [0.0f .. 1.0f]
 };
 
 void initLeds();
@@ -31,3 +32,5 @@ void resetAllRunwaysToIdle();
 void renderRunwayAnimations();
 void showConnectionStatusLed(bool connected);
 void getRecentlyActiveRunwaysStr(char* out_buf, size_t buf_len);
+bool hasHadEventOccurred();
+

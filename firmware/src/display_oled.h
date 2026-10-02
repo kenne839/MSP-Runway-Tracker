@@ -14,8 +14,6 @@ struct FlightEvent {
     char flight_label[32];
     char aircraft_type[32];
     char route[32];
-    int altitude_ft;
-    int speed_kts;
 };
 
 struct DisplayTelemetryData {
@@ -23,6 +21,7 @@ struct DisplayTelemetryData {
     uint8_t flight_count;
     int tracked_count;
     char active_runways_summary[32];
+    bool has_had_event;
 };
 
 void initDisplay();

@@ -23,7 +23,8 @@ void initDisplay() {
     }
 
     memset(&current_data, 0, sizeof(current_data));
-    strncpy(current_data.active_runways_summary, "30R, 30L", sizeof(current_data.active_runways_summary) - 1);
+    current_data.has_had_event = false;
+    current_data.active_runways_summary[0] = '\0';
 }
 
 void showBootScreen(const char* status_text) {
@@ -122,38 +123,59 @@ void renderDisplayLoop() {
         display.setCursor(0, 40);
         display.println(f.route);
 
-        // Telemetry Row
+        // Bottom Footer (Clean summary line replacing alt/speed)
         display.drawFastHLine(0, 51, SCREEN_WIDTH, SSD1306_WHITE);
         display.setCursor(0, 54);
-        display.print(F("Alt:"));
-        display.print(f.altitude_ft);
-        display.print(F("ft  Spd:"));
-        display.print(f.speed_kts);
-        display.print(F("kt"));
+        if (current_data.flight_count > 1) {
+            display.print(F("Cycle 3s | "));
+            display.print(current_data.tracked_count);
+            display.print(F(" tracked"));
+        } else {
+            display.print(F("Airspace: "));
+            display.print(current_data.tracked_count);
+            display.print(F(" tracked"));
+        }
     } else {
-        // IDLE SCREEN: Showing active configuration and yellow polling strobe
+        // IDLE SCREEN:
         display.setTextSize(1);
         display.setTextColor(SSD1306_WHITE);
         display.setCursor(4, 4);
         display.println(F("KMSP RUNWAY MONITOR"));
         display.drawFastHLine(0, 16, SCREEN_WIDTH, SSD1306_WHITE);
 
-        display.setCursor(0, 22);
-        display.print(F("Active: "));
-        display.println(current_data.active_runways_summary);
+        if (current_data.has_had_event) {
+            display.setCursor(0, 21);
+            display.print(F("Flow: RW "));
+            display.println(current_data.active_runways_summary);
 
-        display.setCursor(0, 34);
-        display.println(F("[Yellow Strobe On]"));
+            display.setCursor(0, 32);
+            display.println(F("[Yellow Strobe Active]"));
 
-        display.setCursor(0, 45);
-        display.print(F("Airspace: "));
-        display.print(current_data.tracked_count);
-        display.print(F(" planes"));
+            display.setCursor(0, 43);
+            display.print(F("Airspace: "));
+            display.print(current_data.tracked_count);
+            display.print(F(" planes"));
 
-        // Bottom heartbeat indicator
-        display.drawFastHLine(0, 54, SCREEN_WIDTH, SSD1306_WHITE);
-        display.setCursor(0, 56);
-        display.print(F("Telemetry Polling OK"));
+            display.drawFastHLine(0, 53, SCREEN_WIDTH, SSD1306_WHITE);
+            display.setCursor(0, 55);
+            display.print(F("Telemetry Polling OK"));
+        } else {
+            // Initial state before any flight has occurred
+            display.setCursor(0, 21);
+            display.println(F("System Online"));
+
+            display.setCursor(0, 32);
+            display.println(F("Waiting for traffic..."));
+
+            display.setCursor(0, 43);
+            display.print(F("Airspace: "));
+            display.print(current_data.tracked_count);
+            display.print(F(" planes"));
+
+            display.drawFastHLine(0, 53, SCREEN_WIDTH, SSD1306_WHITE);
+            display.setCursor(0, 55);
+            display.print(F("OpenSky Polling Ready"));
+        }
     }
 
     display.display();
