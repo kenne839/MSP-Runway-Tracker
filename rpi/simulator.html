@@ -3,13 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KMSP Runway LED & OLED Hardware Simulator</title>
+    <title>KMSP Runway LED & UCTRONICS Dual-Color OLED Hardware Simulator</title>
     <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
     <style>
         body { background-color: #0b0f19; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace; user-select: none; }
-        .oled-screen { background: #000000; border: 3px solid #334155; border-radius: 6px; font-family: "Courier New", Courier, monospace; box-shadow: 0 0 15px rgba(56, 189, 248, 0.15); }
         .btn-action { transition: all 0.15s ease-in-out; }
         .btn-action:hover { transform: translateY(-1px); }
+        .oled-bezel {
+            background: #020408;
+            border: 3px solid #334155;
+            border-radius: 8px;
+            box-shadow: 0 0 25px rgba(56, 189, 248, 0.2);
+            font-family: "Courier New", Courier, monospace;
+        }
     </style>
 </head>
 <body class="p-4 md:p-6">
@@ -21,7 +27,7 @@
                     KMSP Runway LED & Display Hardware Simulator
                 </h1>
                 <p class="text-sm text-slate-400 mt-1">
-                    Altium Pick & Place Layout (U2-U85) &bull; Constant Linear Velocity &bull; 3s OLED Cycle &bull; Airport Flow Exclusion
+                    Altium P&P Layout (U2-U85) &bull; UCTRONICS 0.96" Dual-Color (Yellow/Blue) OLED &bull; Constant Linear Velocity
                 </p>
             </div>
             <div class="mt-3 md:mt-0 flex flex-wrap items-center gap-3">
@@ -63,24 +69,50 @@
             </div>
 
             <div class="space-y-6">
-                <!-- Virtual OLED without Altitude and Speed -->
+                <!-- Virtual UCTRONICS 0.96" Dual-Color Yellow & Blue OLED (128x64) -->
                 <div class="bg-[#131b2e] border border-slate-800 rounded-xl p-5 shadow-lg">
                     <div class="flex justify-between items-center mb-3">
-                        <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400">Virtual SSD1306 OLED (128x64)</h2>
-                        <span class="text-[11px] text-sky-400 font-mono">3s Multi-Event Cycle</span>
+                        <div class="flex items-center gap-2">
+                            <span class="inline-block w-2.5 h-2.5 rounded-full bg-yellow-400"></span>
+                            <span class="inline-block w-2.5 h-2.5 rounded-full bg-sky-400"></span>
+                            <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300">UCTRONICS 0.96" OLED (Yellow/Blue)</h2>
+                        </div>
+                        <span class="text-[10px] text-sky-400 font-mono bg-sky-950/60 px-2 py-0.5 rounded border border-sky-800/50">SSD1306 128x64</span>
                     </div>
-                    <div class="oled-screen p-3 w-full h-[155px] flex flex-col justify-between select-none">
-                        <div id="oledHeader" class="bg-white text-black font-bold text-xs px-2 py-0.5 rounded-sm flex justify-between items-center tracking-wider">
-                            <span>KMSP RUNWAY MONITOR</span><span>IDLE</span>
+
+                    <!-- Dual-Color Screen Bezel -->
+                    <div class="oled-bezel p-0 w-full overflow-hidden select-none">
+                        
+                        <!-- Top Yellow Zone (Rows 0-15: 16px physical zone / 25% height) -->
+                        <div id="oledYellowZone" class="bg-black px-3 py-1.5 border-b border-yellow-500/40 flex justify-between items-center text-xs font-bold font-mono tracking-wider transition-all duration-150">
+                            <div id="oledHeader" class="text-yellow-400 drop-shadow-[0_0_6px_rgba(250,204,21,0.8)]">
+                                KMSP RUNWAY MONITOR
+                            </div>
+                            <div id="oledCycleIndicator" class="text-yellow-400 font-mono drop-shadow-[0_0_6px_rgba(250,204,21,0.8)]">
+                                IDLE
+                            </div>
                         </div>
-                        <div class="space-y-1 my-auto">
-                            <div id="oledCallsign" class="text-white text-sm font-bold tracking-wide">System Online</div>
-                            <div id="oledAircraft" class="text-amber-300 text-xs font-semibold">Waiting for traffic...</div>
-                            <div id="oledRoute" class="text-slate-400 text-xs">Airspace: 14 aircraft tracked</div>
-                        </div>
-                        <div class="border-t border-slate-700 pt-1 text-[11px] text-slate-300 font-mono flex justify-between">
-                            <span id="oledStatus">OpenSky Polling Ready</span>
-                            <span id="oledCycleIndicator" class="text-sky-400"></span>
+
+                        <!-- Physical OLED Gap (unlit dark boundary between yellow and blue pixels) -->
+                        <div class="h-[2px] bg-[#000000] border-t border-b border-[#0b1220]"></div>
+
+                        <!-- Bottom Blue Zone (Rows 16-63: 48px physical zone / 75% height) -->
+                        <div class="bg-black p-3 space-y-1.5 flex flex-col justify-between font-mono">
+                            <div class="space-y-1 my-auto">
+                                <div id="oledCallsign" class="text-sky-300 text-sm font-bold tracking-wide drop-shadow-[0_0_6px_rgba(56,189,248,0.7)]">
+                                    System Online
+                                </div>
+                                <div id="oledAircraft" class="text-sky-400 text-xs font-semibold drop-shadow-[0_0_5px_rgba(56,189,248,0.6)]">
+                                    Waiting for traffic...
+                                </div>
+                                <div id="oledRoute" class="text-sky-500/90 text-xs drop-shadow-[0_0_4px_rgba(14,165,233,0.5)]">
+                                    Airspace: 14 aircraft tracked
+                                </div>
+                            </div>
+                            <div class="border-t border-sky-800/60 pt-1.5 text-[11px] text-sky-400 font-mono flex justify-between">
+                                <span id="oledStatus" class="drop-shadow-[0_0_4px_rgba(56,189,248,0.6)]">OpenSky Polling Ready</span>
+                                <span class="text-sky-600 text-[10px]">Dual-Color</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -376,6 +408,7 @@ const PCB_LEDS = [
             return activeNames.length > 0 ? activeNames.join(', ') : "None";
         }
 
+        // Emulates UCTRONICS Dual-Color Yellow & Blue OLED
         function updateOledDisplayCycle() {
             const now = performance.now();
             const count = activeFlightEvents.length;
@@ -387,28 +420,38 @@ const PCB_LEDS = [
                 currentOledIdx = 0;
             }
 
+            const yellowZone = document.getElementById("oledYellowZone");
             const header = document.getElementById("oledHeader");
+            const cycleIndicator = document.getElementById("oledCycleIndicator");
             const callsign = document.getElementById("oledCallsign");
             const aircraft = document.getElementById("oledAircraft");
             const route = document.getElementById("oledRoute");
             const status = document.getElementById("oledStatus");
-            const cycleIndicator = document.getElementById("oledCycleIndicator");
 
             if (count > 0) {
                 const f = activeFlightEvents[currentOledIdx];
-                header.innerHTML = `<span>RW ${f.runway} - ${f.action}</span>`;
-                header.className = (f.action === "LANDING") 
-                    ? "bg-emerald-400 text-black font-bold text-xs px-2 py-0.5 rounded-sm flex justify-between items-center tracking-wider"
-                    : "bg-amber-400 text-black font-bold text-xs px-2 py-0.5 rounded-sm flex justify-between items-center tracking-wider";
+                
+                // TOP YELLOW ZONE (Rows 0-15: Inverted Yellow Banner)
+                yellowZone.className = "bg-yellow-400 text-black px-3 py-1.5 flex justify-between items-center text-xs font-extrabold font-mono tracking-wider";
+                header.innerText = `RW ${f.runway} - ${f.action}`;
+                header.className = "text-black";
+                cycleIndicator.innerText = (count > 1) ? `[${currentOledIdx + 1}/${count}]` : "";
+                cycleIndicator.className = "text-black";
+
+                // BOTTOM BLUE ZONE (Rows 16-63: Glowing Cyan/Blue)
                 callsign.innerText = f.flight_label;
                 aircraft.innerText = f.aircraft_type;
                 route.innerText = f.route;
-                status.innerText = (count > 1) ? `Cycling 3s` : `Airspace: Active`;
-                cycleIndicator.innerText = (count > 1) ? `[${currentOledIdx + 1}/${count}]` : "";
+                status.innerText = (count > 1) ? `Cycle 3s | ${count} flights active` : `Airspace: Active`;
             } else {
-                header.innerHTML = `<span>KMSP RUNWAY MONITOR</span><span>IDLE</span>`;
-                header.className = "bg-white text-black font-bold text-xs px-2 py-0.5 rounded-sm flex justify-between items-center tracking-wider";
-                cycleIndicator.innerText = "";
+                // TOP YELLOW ZONE (Idle: Yellow Text & Dividing Line)
+                yellowZone.className = "bg-black px-3 py-1.5 border-b border-yellow-500/50 flex justify-between items-center text-xs font-bold font-mono tracking-wider";
+                header.innerText = "KMSP RUNWAY MONITOR";
+                header.className = "text-yellow-400 drop-shadow-[0_0_6px_rgba(250,204,21,0.8)]";
+                cycleIndicator.innerText = "IDLE";
+                cycleIndicator.className = "text-yellow-400 drop-shadow-[0_0_6px_rgba(250,204,21,0.8)]";
+
+                // BOTTOM BLUE ZONE (Idle: Glowing Cyan/Blue)
                 if (hasHadEvent) {
                     callsign.innerText = `Flow: RW ${getRecentRunwaysString()}`;
                     aircraft.innerText = "[Yellow Strobe Active]";
