@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KMSP Runway LED & OLED Interactive Hardware Simulator</title>
+    <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --panel-bg: #131b2e;
+            --border-color: #1e293b;
+        }
+        body {
+            background-color: var(--bg-color);
+            color: #e2e8f0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+            user-select: none;
+        }
+        .oled-screen {
+            background: #000000;
+            border: 3px solid #334155;
+            border-radius: 6px;
+            font-family: "Courier New", Courier, monospace;
+            box-shadow: 0 0 15px rgba(56, 189, 248, 0.15);
+        }
+        .btn-action {
+            transition: all 0.15s ease-in-out;
+        }
+        .btn-action:hover {
+            transform: translateY(-1px);
+        }
+        .btn-action:active {
+            transform: translateY(1px);
+        }
+        canvas {
+            image-rendering: -webkit-optimize-contrast;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-6">
+    <div class="max-w-7xl mx-auto space-y-6">
+        
+        <!-- Header -->
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-slate-800 pb-4">
+            <div>
+                <h1 class="text-2xl font-bold tracking-tight text-white flex items-center gap-3">
+                    <span class="inline-block w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></span>
+                    KMSP Runway LED & Display Hardware Simulator
+                </h1>
+                <p class="text-sm text-slate-400 mt-1">
+                    Simulates ESP32-S3 firmware, 84x WS2812B LEDs (U2–U85), and SSD1306 OLED screen prior to hardware arrival
+                </p>
+            </div>
+            <div class="mt-3 md:mt-0 flex items-center gap-3">
+                <button id="toggleLiveBtn" onclick="toggleLiveMode()" class="text-xs bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-700 text-emerald-300 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+                    <span id="liveDot" class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                    <span id="liveBtnText">Mode: Live API Polling</span>
+                </button>
+                <label class="flex items-center gap-2 text-xs text-slate-300 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg cursor-pointer">
+                    <input type="checkbox" id="toggleLabels" class="rounded bg-slate-800 border-slate-700 text-blue-500 focus:ring-0">
+                    Show Labels (U2 - U85)
+                </label>
+                <button onclick="resetAllToIdle()" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded-lg border border-slate-700">
+                    Reset (Idle)
+                </button>
+            </div>
+        </div>
+
+        <!-- Main Display Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            <!-- Left 2 Cols: 84-LED Airport Runway Canvas -->
+            <div class="lg:col-span-2 bg-[#0d1424] border border-slate-800 rounded-xl p-4 shadow-xl flex flex-col items-center">
+                <div class="w-full flex justify-between items-center mb-2 px-2 text-xs text-slate-400">
+                    <span class="font-semibold text-slate-300">MSP Runway Geometry (Metric Tangent Plane Projection)</span>
+                    <span id="fpsCounter" class="text-emerald-400 font-mono">33 FPS</span>
+                </div>
+                
+                <div class="relative w-full overflow-hidden rounded-lg bg-[#080d1a] border border-slate-900 flex justify-center">
+                    <canvas id="runwayCanvas" width="800" height="600" class="w-full max-w-[800px]"></canvas>
+                </div>
+
+                <!-- Legend -->
+                <div class="w-full mt-4 flex flex-wrap justify-center gap-6 text-xs text-slate-400 border-t border-slate-800/60 pt-3">
+                    <div class="flex items-center gap-2">
+                        <span class="w-3 h-3 rounded-full bg-white shadow-[0_0_8px_white]"></span>
+                        <span>Touchdown Strobe / Head</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="w-3 h-3 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]"></span>
+                        <span>Landing Rollout Comet</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="w-3 h-3 rounded-full bg-amber-400 shadow-[0_0_8px_#fbbf24]"></span>
+                        <span>Takeoff Acceleration Comet</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="w-3 h-3 rounded-full bg-[#1e293b] border border-slate-600"></span>
+                        <span>Idle Threshold Marker</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="w-3 h-3 rounded-full bg-purple-500/50"></span>
+                        <span>Crossing Point (U12 / U41)</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Col: Virtual SSD1306 OLED & Control Dashboard -->
+            <div class="space-y-6">
+                
+                <!-- Virtual SSD1306 OLED (128x64 display emulation) -->
+                <div class="bg-[#131b2e] border border-slate-800 rounded-xl p-5 shadow-lg">
+                    <div class="flex justify-between items-center mb-3">
+                        <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400">Virtual SSD1306 OLED (128x64)</h2>
+                        <span class="text-[11px] text-sky-400 font-mono">I2C (GPIO1 / GPIO2)</span>
+                    </div>
+                    
+                    <div class="oled-screen p-3 w-full h-[150px] flex flex-col justify-between select-none">
+                        <!-- Top Inverted Header Banner -->
+                        <div id="oledHeader" class="bg-white text-black font-bold text-xs px-2 py-0.5 rounded-sm flex justify-between items-center tracking-wider">
+                            <span>KMSP RUNWAY MONITOR</span>
+                            <span>IDLE</span>
+                        </div>
+                        
+                        <!-- Middle Body Text -->
+                        <div class="space-y-1 my-auto">
+                            <div id="oledCallsign" class="text-white text-sm font-bold tracking-wide">ALL RUNWAYS CLEAR</div>
+                            <div id="oledAircraft" class="text-slate-300 text-xs">Airspace: 14 aircraft tracked</div>
+                            <div id="oledRoute" class="text-slate-400 text-xs">Live Telemetry Standby</div>
+                        </div>
+
+                        <!-- Bottom Telemetry Divider -->
+                        <div class="border-t border-slate-700 pt-1 flex justify-between text-[11px] text-slate-300 font-mono">
+                            <span id="oledAlt">Alt: ---- ft</span>
+                            <span id="oledSpd">Spd: --- kts</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Interactive Event Triggers -->
+                <div class="bg-[#131b2e] border border-slate-800 rounded-xl p-5 shadow-lg space-y-4">
+                    <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400">Manual Flight Event Triggers</h2>
+                    
+                    <!-- Landing Operations -->
+                    <div class="space-y-2">
+                        <label class="text-[11px] font-semibold text-emerald-400 uppercase tracking-wider">Arrivals (Touchdown Rollout)</label>
+                        <div class="grid grid-cols-2 gap-2 text-xs">
+                            <button onclick="triggerFlight('30R', 'LANDING', 'DAL793', 'Delta Air Lines 793', 'Boeing 737-900', 'B738', 'From KDEN', 1450, 138)" 
+                                    class="btn-action bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-800/60 text-emerald-300 py-2 px-2.5 rounded-lg text-left">
+                                <b>Land 30R</b> <span class="text-[11px] block text-emerald-400/80">Delta 793 (B738)</span>
+                            </button>
+                            <button onclick="triggerFlight('12R', 'LANDING', 'UAL667', 'United Airlines 667', 'Boeing 737 MAX 8', 'B38M', 'From KORD', 1250, 142)" 
+                                    class="btn-action bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-800/60 text-emerald-300 py-2 px-2.5 rounded-lg text-left">
+                                <b>Land 12R</b> <span class="text-[11px] block text-emerald-400/80">United 667 (B38M)</span>
+                            </button>
+                            <button onclick="triggerFlight('30L', 'LANDING', 'SKW4812', 'SkyWest 4812', 'CRJ-900', 'CRJ9', 'From KFAR', 1100, 130)" 
+                                    class="btn-action bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-800/60 text-emerald-300 py-2 px-2.5 rounded-lg text-left">
+                                <b>Land 30L</b> <span class="text-[11px] block text-emerald-400/80">SkyWest 4812 (CRJ9)</span>
+                            </button>
+                            <button onclick="triggerFlight('22', 'LANDING', 'SCX404', 'Sun Country 404', 'Boeing 737-800', 'B738', 'From KLAS', 1600, 145)" 
+                                    class="btn-action bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-800/60 text-emerald-300 py-2 px-2.5 rounded-lg text-left">
+                                <b>Land 22</b> <span class="text-[11px] block text-emerald-400/80">Crosswind (SCX404)</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Takeoff Operations -->
+                    <div class="space-y-2">
+                        <label class="text-[11px] font-semibold text-amber-400 uppercase tracking-wider">Departures (Takeoff Roll)</label>
+                        <div class="grid grid-cols-2 gap-2 text-xs">
+                            <button onclick="triggerFlight('30L', 'TAKEOFF', 'EDV4920', 'Endeavor Air 4920', 'CRJ-900', 'CRJ9', 'To KGRB', 850, 160)" 
+                                    class="btn-action bg-amber-950/40 hover:bg-amber-900/60 border border-amber-800/60 text-amber-300 py-2 px-2.5 rounded-lg text-left">
+                                <b>Takeoff 30L</b> <span class="text-[11px] block text-amber-400/80">Endeavor 4920</span>
+                            </button>
+                            <button onclick="triggerFlight('12L', 'TAKEOFF', 'AAL1142', 'American 1142', 'Airbus A321neo', 'A21N', 'To KDFW', 950, 175)" 
+                                    class="btn-action bg-amber-950/40 hover:bg-amber-900/60 border border-amber-800/60 text-amber-300 py-2 px-2.5 rounded-lg text-left">
+                                <b>Takeoff 12L</b> <span class="text-[11px] block text-amber-400/80">American 1142</span>
+                            </button>
+                            <button onclick="triggerFlight('4', 'TAKEOFF', 'DAL2901', 'Delta Air Lines 2901', 'Airbus A220-300', 'BCS3', 'To KBOS', 1100, 165)" 
+                                    class="btn-action bg-amber-950/40 hover:bg-amber-900/60 border border-amber-800/60 text-amber-300 py-2 px-2.5 rounded-lg text-left">
+                                <b>Takeoff 4</b> <span class="text-[11px] block text-amber-400/80">Crosswind RW 4</span>
+                            </button>
+                            <button onclick="triggerFlight('17', 'TAKEOFF', 'FDX1418', 'FedEx 1418', 'Boeing 757-200', 'B752', 'To KMEM', 700, 155)" 
+                                    class="btn-action bg-amber-950/40 hover:bg-amber-900/60 border border-amber-800/60 text-amber-300 py-2 px-2.5 rounded-lg text-left">
+                                <b>Takeoff 17</b> <span class="text-[11px] block text-amber-400/80">North-South RW</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Complex Operations -->
+                    <div class="pt-2 border-t border-slate-800/80">
+                        <button onclick="triggerParallel()" 
+                                class="w-full btn-action bg-blue-950/50 hover:bg-blue-900/70 border border-blue-700/60 text-blue-200 py-2.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2">
+                            <span>⚡</span> Simulate Parallel Ops (Land 30R + Takeoff 30L)
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Hardware Mapping Quick Reference -->
+                <div class="bg-[#131b2e]/70 border border-slate-800/80 rounded-xl p-4 text-xs space-y-1.5 text-slate-400">
+                    <div class="font-bold text-slate-300 text-xs mb-1">PCB Hardware Quick Reference:</div>
+                    <div>&bull; <b>12R – 30L:</b> U2 to U27 (26 LEDs) | Crossing U12 (idx 10)</div>
+                    <div>&bull; <b>30R – 12L:</b> U28 to U47 (20 LEDs) | Crossing U41 (idx 39)</div>
+                    <div>&bull; <b>22 – 4:</b> U48 to U65 (18 LEDs)</div>
+                    <div>&bull; <b>35 – 17:</b> U66 to U85 (20 LEDs)</div>
+                    <div class="text-slate-500 pt-1">Total: 84 WS2812B-2020-V6 LEDs &bull; Level Shifter: SN74LVC1T45DBVR</div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // =========================================================================
+        // RUNWAY SEGMENT DEFINITIONS & GEOMETRY MAPPING
+        // =========================================================================
+
+        const RUNWAYS = [
+            {
+                name_start: "12R",
+                name_end: "30L",
+                u_start: 2,
+                u_end: 27,
+                count: 26,
+                start_x: 255.1, start_y: 211.9,
+                end_x: 592.9,   end_y: 418.9,
+                crossing_idx: 10, // U12
+                crossing_u: 12,
+                state: "IDLE",
+                moving_forward: true,
+                comet_pos: 0.0,
+                speed: 0.40
+            },
+            {
+                name_start: "30R",
+                name_end: "12L",
+                u_start: 28,
+                u_end: 47,
+                count: 20,
+                start_x: 666.4, start_y: 306.9, // 30R end (SE)
+                end_x: 389.9,   end_y: 137.9, // 12L end (NW)
+                crossing_idx: 13, // U41 relative index (41 - 28 = 13)
+                crossing_u: 41,
+                state: "IDLE",
+                moving_forward: true,
+                comet_pos: 0.0,
+                speed: 0.40
+            },
+            {
+                name_start: "22",
+                name_end: "4",
+                u_start: 48,
+                u_end: 65,
+                count: 18,
+                start_x: 212.6, start_y: 436.8, // 22 end (SW)
+                end_x: 519.9,   end_y: 128.4, // 4 end (NE)
+                crossing_idx: -1,
+                crossing_u: null,
+                state: "IDLE",
+                moving_forward: true,
+                comet_pos: 0.0,
+                speed: 0.40
+            },
+            {
+                name_start: "35",
+                name_end: "17",
+                u_start: 66,
+                u_end: 85,
+                count: 20,
+                start_x: 172.2, start_y: 213.0, // 35 end (N)
+                end_x: 229.7,   end_y: 524.8, // 17 end (S)
+                crossing_idx: -1,
+                crossing_u: null,
+                state: "IDLE",
+                moving_forward: true,
+                comet_pos: 0.0,
+                speed: 0.40
+            }
+        ];
+
+        // Canvas & Animation Setup
+        const canvas = document.getElementById("runwayCanvas");
+        const ctx = canvas.getContext("2d");
+        let showLabels = false;
+        let isLiveMode = true;
+
+        document.getElementById("toggleLabels").addEventListener("change", (e) => {
+            showLabels = e.target.checked;
+        });
+
+        function toggleLiveMode() {
+            isLiveMode = !isLiveMode;
+            const btn = document.getElementById("toggleLiveBtn");
+            const dot = document.getElementById("liveDot");
+            const txt = document.getElementById("liveBtnText");
+            if (isLiveMode) {
+                btn.className = "text-xs bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-700 text-emerald-300 px-3 py-1.5 rounded-lg flex items-center gap-1.5";
+                dot.className = "w-2 h-2 rounded-full bg-emerald-400";
+                txt.innerText = "Mode: Live API Polling";
+            } else {
+                btn.className = "text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-3 py-1.5 rounded-lg flex items-center gap-1.5";
+                dot.className = "w-2 h-2 rounded-full bg-slate-500";
+                txt.innerText = "Mode: Manual Triggers";
+            }
+        }
+
+        // FastLED color addition helper (with 255 clamping)
+        function qadd(c1, c2) {
+            return {
+                r: Math.min(255, c1.r + c2.r),
+                g: Math.min(255, c1.g + c2.g),
+                b: Math.min(255, c1.b + c2.b)
+            };
+        }
+
+        // =========================================================================
+        // FLIGHT TRIGGER LOGIC
+        // =========================================================================
+
+        function triggerFlight(runway, action, callsign, label, type, typeCode, route, alt, spd) {
+            isLiveMode = false;
+            document.getElementById("liveBtnText").innerText = "Mode: Manual Triggers";
+            document.getElementById("liveDot").className = "w-2 h-2 rounded-full bg-slate-500";
+            document.getElementById("toggleLiveBtn").className = "text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-3 py-1.5 rounded-lg flex items-center gap-1.5";
+
+            for (let seg of RUNWAYS) {
+                if (seg.name_start === runway) {
+                    seg.state = action;
+                    seg.moving_forward = true;
+                    seg.speed = (action === "TAKEOFF") ? 0.65 : 0.40;
+                    seg.comet_pos = 0.0;
+                } else if (seg.name_end === runway) {
+                    seg.state = action;
+                    seg.moving_forward = false;
+                    seg.speed = (action === "TAKEOFF") ? 0.65 : 0.40;
+                    seg.comet_pos = 0.0;
+                }
+            }
+
+            updateOledDisplay({
+                has_active: true,
+                runway: runway,
+                action: action,
+                flight_label: label,
+                aircraft_type: `${type} (${typeCode})`,
+                route: route,
+                alt: alt,
+                spd: spd
+            });
+        }
+
+        function triggerParallel() {
+            triggerFlight('30R', 'LANDING', 'DAL793', 'Delta Air Lines 793', 'Boeing 737-900', 'B738', 'From KDEN', 1450, 138);
+            
+            const seg30L = RUNWAYS[0];
+            seg30L.state = "TAKEOFF";
+            seg30L.moving_forward = false; // 30L is at end, rolling towards 12R
+            seg30L.speed = 0.65;
+            seg30L.comet_pos = 0.0;
+
+            document.getElementById("oledHeader").innerHTML = `<span>PARALLEL OPS</span><span>30R + 30L</span>`;
+            document.getElementById("oledCallsign").innerText = `DAL793 & SKW3822`;
+            document.getElementById("oledAircraft").innerText = `B738 (Land) & CRJ9 (Depart)`;
+            document.getElementById("oledRoute").innerText = `Active Simultaneous Operations`;
+        }
+
+        function resetAllToIdle() {
+            for (let seg of RUNWAYS) {
+                seg.state = "IDLE";
+                seg.comet_pos = 0.0;
+            }
+            updateOledDisplay({ has_active: false });
+        }
+
+        function updateOledDisplay(info) {
+            const header = document.getElementById("oledHeader");
+            const callsign = document.getElementById("oledCallsign");
+            const aircraft = document.getElementById("oledAircraft");
+            const route = document.getElementById("oledRoute");
+            const alt = document.getElementById("oledAlt");
+            const spd = document.getElementById("oledSpd");
+
+            if (info.has_active) {
+                header.innerHTML = `<span>RW ${info.runway} - ${info.action}</span><span>LIVE</span>`;
+                header.className = (info.action === "LANDING") 
+                    ? "bg-emerald-400 text-black font-bold text-xs px-2 py-0.5 rounded-sm flex justify-between items-center tracking-wider"
+                    : "bg-amber-400 text-black font-bold text-xs px-2 py-0.5 rounded-sm flex justify-between items-center tracking-wider";
+                callsign.innerText = info.flight_label;
+                aircraft.innerText = info.aircraft_type;
+                route.innerText = info.route;
+                alt.innerText = `Alt: ${info.alt} ft`;
+                spd.innerText = `Spd: ${info.spd} kts`;
+            } else {
+                header.innerHTML = `<span>KMSP RUNWAY MONITOR</span><span>IDLE</span>`;
+                header.className = "bg-white text-black font-bold text-xs px-2 py-0.5 rounded-sm flex justify-between items-center tracking-wider";
+                callsign.innerText = "ALL RUNWAYS CLEAR";
+                aircraft.innerText = "Airspace: 14 aircraft tracked";
+                route.innerText = "Live Telemetry Standby";
+                alt.innerText = "Alt: ---- ft";
+                spd.innerText = "Spd: --- kts";
+            }
+        }
+
+        // Live API Polling Loop (fetches /api/runway_state if running on local server)
+        async function pollServer() {
+            if (!isLiveMode) return;
+            try {
+                const res = await fetch('/api/runway_state');
+                if (!res.ok) return;
+                const data = await res.json();
+
+                // Apply runway states from API
+                const summary = data.runway_summary || {};
+                for (let seg of RUNWAYS) {
+                    const statusStart = summary[seg.name_start]?.status;
+                    const statusEnd = summary[seg.name_end]?.status;
+
+                    if (statusStart && statusStart !== "IDLE") {
+                        seg.state = statusStart;
+                        seg.moving_forward = true;
+                        seg.speed = (statusStart === "TAKEOFF") ? 0.65 : 0.40;
+                    } else if (statusEnd && statusEnd !== "IDLE") {
+                        seg.state = statusEnd;
+                        seg.moving_forward = false;
+                        seg.speed = (statusEnd === "TAKEOFF") ? 0.65 : 0.40;
+                    } else {
+                        seg.state = "IDLE";
+                    }
+                }
+
+                // Update OLED
+                if (data.primary_operation) {
+                    const p = data.primary_operation;
+                    updateOledDisplay({
+                        has_active: true,
+                        runway: p.runway,
+                        action: p.action,
+                        flight_label: p.flight_label || p.callsign,
+                        aircraft_type: p.aircraft_type,
+                        route: p.route,
+                        alt: p.altitude_ft || 0,
+                        spd: p.speed_kts || 0
+                    });
+                } else {
+                    updateOledDisplay({ has_active: false });
+                }
+            } catch (e) {
+                // Ignore errors when running standalone without web server
+            }
+        }
+        setInterval(pollServer, 1500);
+
+        // =========================================================================
+        // RENDERING LOOP & COMET PHYSICS
+        // =========================================================================
+
+        let frameCount = 0;
+        let lastFpsUpdate = performance.now();
+
+        function render() {
+            requestAnimationFrame(render);
+
+            const now = performance.now();
+            frameCount++;
+            if (now - lastFpsUpdate >= 1000) {
+                document.getElementById("fpsCounter").innerText = `${frameCount} FPS`;
+                frameCount = 0;
+                lastFpsUpdate = now;
+            }
+
+            // Clear Background
+            ctx.fillStyle = "#080d1a";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw Runway Pavement Underlays
+            for (let seg of RUNWAYS) {
+                ctx.beginPath();
+                ctx.moveTo(seg.start_x, seg.start_y);
+                ctx.lineTo(seg.end_x, seg.end_y);
+                ctx.strokeStyle = "#172338";
+                ctx.lineWidth = 14;
+                ctx.lineCap = "round";
+                ctx.stroke();
+
+                // Centerline dashed guide
+                ctx.beginPath();
+                ctx.moveTo(seg.start_x, seg.start_y);
+                ctx.lineTo(seg.end_x, seg.end_y);
+                ctx.strokeStyle = "#253754";
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([4, 6]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                // Runway Labels at Thresholds
+                ctx.fillStyle = "#64748b";
+                ctx.font = "bold 11px monospace";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+
+                const dx = seg.end_x - seg.start_x;
+                const dy = seg.end_y - seg.start_y;
+                const len = Math.hypot(dx, dy);
+                const ux = dx / len;
+                const uy = dy / len;
+
+                ctx.fillText(seg.name_start, seg.start_x - ux * 18, seg.start_y - uy * 18);
+                ctx.fillText(seg.name_end, seg.end_x + ux * 18, seg.end_y + uy * 18);
+            }
+
+            // Draw Intersection Highlights (U12 & U41)
+            for (let seg of RUNWAYS) {
+                if (seg.crossing_u) {
+                    const t = seg.crossing_idx / (seg.count - 1);
+                    const cx = seg.start_x + t * (seg.end_x - seg.start_x);
+                    const cy = seg.start_y + t * (seg.end_y - seg.start_y);
+
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, 9, 0, Math.PI * 2);
+                    ctx.fillStyle = "rgba(147, 51, 234, 0.15)";
+                    ctx.fill();
+                    ctx.strokeStyle = "rgba(168, 85, 247, 0.4)";
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                }
+            }
+
+            // Draw LEDs and Compute Comet Tail
+            for (let seg of RUNWAYS) {
+                const count = seg.count;
+                const ledColors = new Array(count).fill(null).map(() => ({ r: 0, g: 0, b: 0 }));
+
+                if (seg.state === "IDLE") {
+                    // Dim threshold markers
+                    ledColors[0] = { r: 10, g: 14, b: 20 };
+                    ledColors[count - 1] = { r: 10, g: 14, b: 20 };
+
+                    if (seg.crossing_idx >= 0) {
+                        ledColors[seg.crossing_idx] = { r: 8, g: 10, b: 16 };
+                    }
+                } else {
+                    // Advance Comet Position
+                    seg.comet_pos += seg.speed;
+                    if (seg.comet_pos >= count + 6) {
+                        seg.comet_pos = 0.0;
+                    }
+
+                    const headStep = Math.floor(seg.comet_pos);
+                    const tailLength = 6;
+
+                    for (let k = 0; k <= tailLength; k++) {
+                        const pos = headStep - k;
+                        if (pos < 0 || pos >= count) continue;
+
+                        const ledIdx = seg.moving_forward ? pos : (count - 1 - pos);
+
+                        let c;
+                        if (seg.state === "LANDING") {
+                            // Crisp White Strobe head + Emerald / Cyan Tail
+                            if (k === 0) c = { r: 255, g: 255, b: 255 };
+                            else if (k === 1) c = { r: 80, g: 255, b: 180 };
+                            else if (k === 2) c = { r: 0, g: 200, b: 100 };
+                            else if (k === 3) c = { r: 0, g: 120, b: 50 };
+                            else if (k === 4) c = { r: 0, g: 60, b: 25 };
+                            else c = { r: 0, g: 20, b: 10 };
+                        } else {
+                            // Warm White Strobe head + Gold / Amber / Orange Flame Tail
+                            if (k === 0) c = { r: 255, g: 255, b: 220 };
+                            else if (k === 1) c = { r: 255, g: 190, b: 0 };
+                            else if (k === 2) c = { r: 255, g: 120, b: 0 };
+                            else if (k === 3) c = { r: 200, g: 60, b: 0 };
+                            else if (k === 4) c = { r: 120, g: 25, b: 0 };
+                            else c = { r: 40, g: 8, b: 0 };
+                        }
+
+                        ledColors[ledIdx] = qadd(ledColors[ledIdx], c);
+                    }
+
+                    // Base threshold illumination
+                    const startLed = seg.moving_forward ? 0 : count - 1;
+                    const baseThreshold = (seg.state === "LANDING") 
+                        ? { r: 0, g: 40, b: 20 } 
+                        : { r: 40, g: 20, b: 0 };
+                    ledColors[startLed] = qadd(ledColors[startLed], baseThreshold);
+                }
+
+                // Render each LED onto canvas
+                for (let i = 0; i < count; i++) {
+                    const t = i / (count - 1);
+                    const lx = seg.start_x + t * (seg.end_x - seg.start_x);
+                    const ly = seg.start_y + t * (seg.end_y - seg.start_y);
+
+                    const color = ledColors[i];
+                    const uNumber = seg.u_start + i;
+
+                    // Glow halo if LED is lit
+                    const intensity = (color.r + color.g + color.b) / 3;
+                    if (intensity > 25) {
+                        ctx.beginPath();
+                        ctx.arc(lx, ly, 10, 0, Math.PI * 2);
+                        ctx.fillStyle = `rgba(${color.r}, ${color.g}, ${color.b}, 0.3)`;
+                        ctx.fill();
+
+                        ctx.beginPath();
+                        ctx.arc(lx, ly, 18, 0, Math.PI * 2);
+                        ctx.fillStyle = `rgba(${color.r}, ${color.g}, ${color.b}, 0.12)`;
+                        ctx.fill();
+                    }
+
+                    // Main LED Body (2020 package size representation)
+                    ctx.beginPath();
+                    ctx.arc(lx, ly, 4, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgb(${color.r}, ${color.g}, ${color.b})`;
+                    ctx.fill();
+                    ctx.strokeStyle = (intensity > 30) ? "rgba(255,255,255,0.7)" : "#334155";
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+
+                    // Optional Component Designator Labels (U2 - U85)
+                    if (showLabels) {
+                        ctx.font = "8px monospace";
+                        ctx.fillStyle = (intensity > 50) ? "#ffffff" : "#94a3b8";
+                        ctx.fillText(`U${uNumber}`, lx, ly - 8);
+                    }
+                }
+            }
+        }
+
+        // Start render loop
+        render();
+    </script>
+</body>
+</html>

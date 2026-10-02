@@ -3,6 +3,7 @@ Lightweight, multi-threaded HTTP server providing the REST JSON API for the ESP3
 and an embedded real-time web dashboard for manual monitoring.
 """
 
+import os
 import json
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
@@ -220,6 +221,20 @@ def make_handler(state: TelemetryState):
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.end_headers()
                 self.wfile.write(body)
+
+            elif path in ("/simulator", "/sim"):
+                sim_path = os.path.join(os.path.dirname(__file__), "simulator.html")
+                if os.path.exists(sim_path):
+                    with open(sim_path, "rb") as sf:
+                        body = sf.read()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(body)
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+                    self.wfile.write(b"Simulator not found")
 
             else:
                 self.send_response(404)
