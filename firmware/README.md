@@ -18,16 +18,22 @@ This firmware runs on the custom **ESP32-S3-WROOM-1-N16R8** PCB. It connects to 
 
 ---
 
-## Runway LED Allocation (84 Addressable LEDs)
+## Runway LED Allocation (84 Addressable LEDs: U2 - U85)
 
-The 84 WS2812B LEDs are daisy-chained (`U2` &rarr; `U85`). By default, they are mapped as follows in [`src/config.h`](src/config.h):
+The 84 WS2812B LEDs are daisy-chained (`U2` &rarr; `U85`). The hardware layout is mapped as follows:
 
-* **Runway 12L / 30R:** 24 LEDs (`indices 0 to 23`)
-* **Runway 12R / 30L:** 26 LEDs (`indices 24 to 49`)
-* **Runway 4 / 22:** 20 LEDs (`indices 50 to 69`)
-* **Runway 17 / 35:** 14 LEDs (`indices 70 to 83`)
+| Runway | Components | Strip Indices | LED Count | Crossing Point |
+| :--- | :--- | :--- | :--- | :--- |
+| **Runway 12R – 30L** | `U2` – `U27` | `0` – `25` | 26 LEDs | `U12` (idx `10`) crosses RW 22/4 |
+| **Runway 30R – 12L** | `U28` – `U47` | `26` – `45` | 20 LEDs | `U41` (idx `39`) crosses RW 22/4 |
+| **Runway 22 – 4** | `U48` – `U65` | `46` – `63` | 18 LEDs | Crosses parallel runways |
+| **Runway 35 – 17** | `U66` – `U85` | `64` – `83` | 20 LEDs | Independent N-S runway |
 
-> **Note:** If your physical PCB trace routing follows a different runway order, simply edit the `#define RW_*_START` and `_END` indices in [`src/config.h`](src/config.h).
+### Comet Animation Behavior
+* **Landings (Touchdown Rollout):** The comet head initiates at the physical touchdown threshold of the active runway (e.g. `12R` starts at `U2` moving forward, `30L` starts at `U27` moving in reverse). The comet features a crisp white touchdown strobe followed by a 6-LED fading emerald green / cyan glide rollout tail.
+* **Takeoffs (Takeoff Acceleration Roll):** The comet initiates where the aircraft starts its takeoff roll. It accelerates down the runway toward the departure end with a high-energy warm white head and an afterburner amber / gold / orange flame tail.
+* **Simultaneous Operations:** Each runway zone tracks independent animation state machines, allowing parallel approaches or simultaneous crosswind departures without visual interference.
+
 
 ---
 

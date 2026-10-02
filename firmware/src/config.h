@@ -28,29 +28,31 @@
 // Current & Thermal safety limit: 64/255 limits draw to ~1.2A worst-case for 84 LEDs
 #define MAX_LED_BRIGHTNESS  64  
 
-// Runway LED Index Ranges (Total: 84 LEDs, U2 to U85 in daisy-chain)
-// Adjust these index ranges if your physical PCB trace routing differs:
-struct RunwayLedRange {
-    uint8_t start_idx;
-    uint8_t end_idx;
-    bool reverse_for_high_rw; // True if landing on high number runway moves end -> start
-};
+// =============================================================================
+// PHYSICAL RUNWAY LED MAPPING (Verified with PCB Component Designators U2 - U85)
+// =============================================================================
+// Total: 84 LEDs (U2 through U85)
+// Formula: LED Index = Component Number - 2
 
-// Runway 12L / 30R: 24 LEDs (indices 0 to 23)
-#define RW_12L_30R_START    0
-#define RW_12L_30R_END      23
+// 1. Runway 12R - 30L: U2 - U27 (26 LEDs)
+//    U12 (index 10) is the runway crossing with RW 22 - RW 4
+#define RW_12R_30L_START    0    // U2  (12R Threshold)
+#define RW_12R_30L_END      25   // U27 (30L Threshold)
+#define RW_12R_30L_CROSSING 10   // U12 (Crossing with RW 22/4)
 
-// Runway 12R / 30L: 26 LEDs (indices 24 to 49)
-#define RW_12R_30L_START    24
-#define RW_12R_30L_END      49
+// 2. Runway 30R - 12L: U28 - U47 (20 LEDs)
+//    U41 (index 39) is the runway crossing with RW 22 - RW 4
+#define RW_30R_12L_START    26   // U28 (30R Threshold)
+#define RW_30R_12L_END      45   // U47 (12L Threshold)
+#define RW_30R_12L_CROSSING 39   // U41 (Crossing with RW 22/4)
 
-// Runway 4 / 22: 20 LEDs (indices 50 to 69)
-#define RW_4_22_START       50
-#define RW_4_22_END         69
+// 3. Runway 22 - 4: U48 - U65 (18 LEDs)
+#define RW_22_4_START       46   // U48 (22 Threshold)
+#define RW_22_4_END         63   // U65 (4 Threshold)
 
-// Runway 17 / 35: 14 LEDs (indices 70 to 83)
-#define RW_17_35_START      70
-#define RW_17_35_END        83
+// 4. Runway 35 - 17: U66 - U85 (20 LEDs)
+#define RW_35_17_START      64   // U66 (35 Threshold)
+#define RW_35_17_END        83   // U85 (17 Threshold)
 
 // =============================================================================
 // NETWORK & TELEMETRY CONFIGURATION

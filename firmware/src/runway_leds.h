@@ -10,14 +10,16 @@ enum RunwayOpState {
     RW_STATE_TAKEOFF
 };
 
-struct RunwayControl {
-    const char* name_low;    // e.g. "12L"
-    const char* name_high;   // e.g. "30R"
-    uint8_t start_idx;
-    uint8_t end_idx;
-    RunwayOpState current_state;
-    bool active_on_high;     // True if operation is on 30R rather than 12L
-    float progress;          // 0.0 to 1.0 aircraft position
+struct RunwaySegment {
+    const char* name_start;   // Runway designator at start_idx
+    const char* name_end;     // Runway designator at end_idx
+    uint8_t start_idx;        // FastLED strip start index
+    uint8_t end_idx;          // FastLED strip end index
+    int8_t crossing_idx;      // Crossing LED index (-1 if none)
+    RunwayOpState state;      // IDLE, LANDING, TAKEOFF
+    bool moving_forward;      // true: start_idx -> end_idx, false: end_idx -> start_idx
+    float comet_pos;          // Current position along length (0.0 to length - 1)
+    float speed;              // Position delta per frame
 };
 
 void initLeds();
