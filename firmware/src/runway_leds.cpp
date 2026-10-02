@@ -8,10 +8,10 @@ static CRGB leds[NUM_LEDS];
 // 3. Runway 22 - 4:   U48 - U65 (18 LEDs)
 // 4. Runway 35 - 17:  U66 - U85 (20 LEDs)
 static RunwaySegment runways[4] = {
-    {"12R", "30L", RW_12R_30L_START, RW_12R_30L_END, RW_12R_30L_CROSSING, RW_STATE_IDLE, true,  0.0f, 0.45f},
-    {"30R", "12L", RW_30R_12L_START, RW_30R_12L_END, RW_30R_12L_CROSSING, RW_STATE_IDLE, true,  0.0f, 0.45f},
-    {"22",  "4",   RW_22_4_START,    RW_22_4_END,    -1,                   RW_STATE_IDLE, true,  0.0f, 0.45f},
-    {"35",  "17",  RW_35_17_START,   RW_35_17_END,   -1,                   RW_STATE_IDLE, true,  0.0f, 0.45f}
+    {"12R", "30L", RW_12R_30L_START, RW_12R_30L_END, RW_12R_30L_CROSSING, RW_STATE_IDLE, true,  0.0f, 0.11f},
+    {"30R", "12L", RW_30R_12L_START, RW_30R_12L_END, RW_30R_12L_CROSSING, RW_STATE_IDLE, true,  0.0f, 0.11f},
+    {"22",  "4",   RW_22_4_START,    RW_22_4_END,    -1,                   RW_STATE_IDLE, true,  0.0f, 0.11f},
+    {"35",  "17",  RW_35_17_START,   RW_35_17_END,   -1,                   RW_STATE_IDLE, true,  0.0f, 0.11f}
 };
 
 static uint32_t last_frame_time = 0;
@@ -56,7 +56,8 @@ void setRunwayState(const char* runway_name, const char* action_str, float progr
             bool state_changed = (r.state != op || !r.moving_forward);
             r.state = op;
             r.moving_forward = true; // Rollout moves from start_idx -> end_idx
-            r.speed = (op == RW_STATE_TAKEOFF) ? 0.65f : 0.40f;
+            // Slower realistic rollout: ~7s for landing, ~4.4s for takeoff
+            r.speed = (op == RW_STATE_TAKEOFF) ? 0.18f : 0.11f;
             if (state_changed) {
                 r.comet_pos = 0.0f; // Start comet at touchdown/takeoff roll threshold
             }
@@ -67,7 +68,8 @@ void setRunwayState(const char* runway_name, const char* action_str, float progr
             bool state_changed = (r.state != op || r.moving_forward);
             r.state = op;
             r.moving_forward = false; // Rollout moves from end_idx -> start_idx
-            r.speed = (op == RW_STATE_TAKEOFF) ? 0.65f : 0.40f;
+            // Slower realistic rollout: ~7s for landing, ~4.4s for takeoff
+            r.speed = (op == RW_STATE_TAKEOFF) ? 0.18f : 0.11f;
             if (state_changed) {
                 r.comet_pos = 0.0f; // Start comet at touchdown/takeoff roll threshold
             }

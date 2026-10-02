@@ -52,17 +52,22 @@
                     Simulates ESP32-S3 firmware, 84x WS2812B LEDs (U2–U85), and SSD1306 OLED screen prior to hardware arrival
                 </p>
             </div>
-            <div class="mt-3 md:mt-0 flex items-center gap-3">
+            <div class="mt-3 md:mt-0 flex flex-wrap items-center gap-3">
+                <div class="flex items-center gap-2 text-xs text-slate-300 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg">
+                    <span>Speed:</span>
+                    <input type="range" id="speedSlider" min="0.04" max="0.30" step="0.01" value="0.11" class="w-20 accent-emerald-500 cursor-pointer">
+                    <span id="speedVal" class="text-emerald-400 font-mono w-14">0.11 (~7s)</span>
+                </div>
                 <button id="toggleLiveBtn" onclick="toggleLiveMode()" class="text-xs bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-700 text-emerald-300 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
                     <span id="liveDot" class="w-2 h-2 rounded-full bg-emerald-400"></span>
-                    <span id="liveBtnText">Mode: Live API Polling</span>
+                    <span id="liveBtnText">Live Polling</span>
                 </button>
                 <label class="flex items-center gap-2 text-xs text-slate-300 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg cursor-pointer">
                     <input type="checkbox" id="toggleLabels" class="rounded bg-slate-800 border-slate-700 text-blue-500 focus:ring-0">
-                    Show Labels (U2 - U85)
+                    Labels (U2-U85)
                 </label>
                 <button onclick="resetAllToIdle()" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded-lg border border-slate-700">
-                    Reset (Idle)
+                    Reset
                 </button>
             </div>
         </div>
@@ -318,6 +323,25 @@
         // FLIGHT TRIGGER LOGIC
         // =========================================================================
 
+        const speedSlider = document.getElementById("speedSlider");
+        const speedVal = document.getElementById("speedVal");
+        let baseSpeed = 0.11;
+
+        speedSlider.addEventListener("input", (e) => {
+            baseSpeed = parseFloat(e.target.value);
+            const estSec = Math.round(25 / (baseSpeed * 33) * 10) / 10;
+            speedVal.innerText = `${baseSpeed.toFixed(2)} (~${estSec}s)`;
+            for (let seg of RUNWAYS) {
+                if (seg.state !== "IDLE") {
+                    seg.speed = (seg.state === "TAKEOFF") ? baseSpeed * 1.6 : baseSpeed;
+                }
+            }
+        });
+
+        function getSpeedForAction(action) {
+            return (action === "TAKEOFF") ? baseSpeed * 1.6 : baseSpeed;
+        }
+
         function triggerFlight(runway, action, callsign, label, type, typeCode, route, alt, spd) {
             isLiveMode = false;
             document.getElementById("liveBtnText").innerText = "Mode: Manual Triggers";
@@ -328,12 +352,12 @@
                 if (seg.name_start === runway) {
                     seg.state = action;
                     seg.moving_forward = true;
-                    seg.speed = (action === "TAKEOFF") ? 0.65 : 0.40;
+                    seg.speed = getSpeedForAction(action);
                     seg.comet_pos = 0.0;
                 } else if (seg.name_end === runway) {
                     seg.state = action;
                     seg.moving_forward = false;
-                    seg.speed = (action === "TAKEOFF") ? 0.65 : 0.40;
+                    seg.speed = getSpeedForAction(action);
                     seg.comet_pos = 0.0;
                 }
             }
@@ -356,7 +380,7 @@
             const seg30L = RUNWAYS[0];
             seg30L.state = "TAKEOFF";
             seg30L.moving_forward = false; // 30L is at end, rolling towards 12R
-            seg30L.speed = 0.65;
+            seg30L.speed = getSpeedForAction("TAKEOFF");
             seg30L.comet_pos = 0.0;
 
             document.getElementById("oledHeader").innerHTML = `<span>PARALLEL OPS</span><span>30R + 30L</span>`;
@@ -419,11 +443,11 @@
                     if (statusStart && statusStart !== "IDLE") {
                         seg.state = statusStart;
                         seg.moving_forward = true;
-                        seg.speed = (statusStart === "TAKEOFF") ? 0.65 : 0.40;
+                        seg.speed = getSpeedForAction(statusStart);
                     } else if (statusEnd && statusEnd !== "IDLE") {
                         seg.state = statusEnd;
                         seg.moving_forward = false;
-                        seg.speed = (statusEnd === "TAKEOFF") ? 0.65 : 0.40;
+                        seg.speed = getSpeedForAction(statusEnd);
                     } else {
                         seg.state = "IDLE";
                     }
