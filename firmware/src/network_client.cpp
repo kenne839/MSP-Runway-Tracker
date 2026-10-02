@@ -1,4 +1,7 @@
 #include "network_client.h"
+
+#if !defined(BOARD_MODE_BLE)
+
 #include "runway_leds.h"
 
 static HTTPClient http;
@@ -118,3 +121,5 @@ bool pollTelemetryData(DisplayTelemetryData& out_telemetry) {
 
     return true;
 }
+
+#endif
