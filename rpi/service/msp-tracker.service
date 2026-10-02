@@ -1,0 +1,21 @@
+[Unit]
+Description=MSP Runway Tracker Telemetry Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/msp-runway-tracker
+ExecStart=/usr/bin/python3 -m rpi.main
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONUNBUFFERED=1
+Environment=MSP_DATA_SOURCE=opensky
+Environment=MSP_SERVER_HOST=0.0.0.0
+Environment=MSP_SERVER_PORT=8080
+
+[Install]
+WantedBy=multi-user.target
