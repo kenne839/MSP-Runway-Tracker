@@ -39,7 +39,7 @@ void checkWifiConnection() {
     }
 }
 
-bool pollTelemetryData(DisplayFlightInfo& out_flight_info) {
+bool pollTelemetryData(DisplayTelemetryData& out_telemetry) {
     uint32_t now = millis();
     if (now - last_poll_time < TELEMETRY_POLL_MS) {
         return false;
@@ -65,7 +65,6 @@ bool pollTelemetryData(DisplayFlightInfo& out_flight_info) {
     String payload = http.getString();
     http.end();
 
-    // Allocate JSON document for parsing
     JsonDocument doc;
     DeserializationError error = deserializeJson(doc, payload);
 
@@ -87,7 +86,10 @@ bool pollTelemetryData(DisplayFlightInfo& out_flight_info) {
         }
     }
 
-    // 2. Refine runway animations with specific operation progress if available
+    // 2. Refine runway animations and parse all active flight events for the OLED
+    out_telemetry.flight_count = 0;
+    out_telemetry.tracked_count = doc["tracked_count"] | 0;
+
     JsonArray ops = doc["active_operations"];
     if (!ops.isNull()) {
         for (JsonObject op : ops) {
@@ -95,29 +97,24 @@ bool pollTelemetryData(DisplayFlightInfo& out_flight_info) {
             const char* action = op["action"] | "IDLE";
             float progress = op["progress"] | 0.5f;
             setRunwayState(rw, action, progress);
+
+            // Populate multi-flight OLED queue
+            if (out_telemetry.flight_count < MAX_TRACKED_FLIGHTS) {
+                FlightEvent& f = out_telemetry.flights[out_telemetry.flight_count];
+                strncpy(f.runway, rw, sizeof(f.runway) - 1);
+                strncpy(f.action, action, sizeof(f.action) - 1);
+                strncpy(f.flight_label, op["flight_label"] | (op["callsign"] | "Unknown"), sizeof(f.flight_label) - 1);
+                strncpy(f.aircraft_type, op["aircraft_type"] | "Unknown", sizeof(f.aircraft_type) - 1);
+                strncpy(f.route, op["route"] | "", sizeof(f.route) - 1);
+                f.altitude_ft = op["altitude_ft"] | 0;
+                f.speed_kts = op["speed_kts"] | 0;
+                out_telemetry.flight_count++;
+            }
         }
     }
 
-    // 3. Extract primary flight for the OLED display
-    int active_count = doc["active_count"] | 0;
-    out_flight_info.tracked_count = doc["tracked_count"] | 0;
-
-    if (active_count > 0 && !doc["primary_operation"].isNull()) {
-        JsonObject prim = doc["primary_operation"];
-        out_flight_info.has_active_flight = true;
-        
-        strncpy(out_flight_info.runway, prim["runway"] | "??", sizeof(out_flight_info.runway) - 1);
-        strncpy(out_flight_info.action, prim["action"] | "IDLE", sizeof(out_flight_info.action) - 1);
-        strncpy(out_flight_info.flight_label, prim["flight_label"] | (prim["callsign"] | "Unknown"), sizeof(out_flight_info.flight_label) - 1);
-        strncpy(out_flight_info.aircraft_type, prim["aircraft_type"] | "Unknown", sizeof(out_flight_info.aircraft_type) - 1);
-        strncpy(out_flight_info.route, prim["route"] | "", sizeof(out_flight_info.route) - 1);
-        out_flight_info.altitude_ft = prim["altitude_ft"] | 0;
-        out_flight_info.speed_kts = prim["speed_kts"] | 0;
-    } else {
-        out_flight_info.has_active_flight = false;
-        out_flight_info.runway[0] = '\0';
-        out_flight_info.action[0] = '\0';
-    }
+    // Update summary string of recently active runways for the OLED idle display
+    getRecentlyActiveRunwaysStr(out_telemetry.active_runways_summary, sizeof(out_telemetry.active_runways_summary));
 
     return true;
 }

@@ -9,4 +9,4 @@
 
 void initNetwork();
 void checkWifiConnection();
-bool pollTelemetryData(DisplayFlightInfo& out_flight_info);
+bool pollTelemetryData(DisplayTelemetryData& out_telemetry);

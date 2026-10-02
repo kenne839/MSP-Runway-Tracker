@@ -4,9 +4,8 @@
 #include "display_oled.h"
 #include "network_client.h"
 
-static DisplayFlightInfo currentFlight;
+static DisplayTelemetryData telemetry_data;
 static uint32_t last_wifi_check = 0;
-static uint32_t last_oled_refresh = 0;
 
 void setup() {
     Serial.begin(115200);
@@ -34,30 +33,26 @@ void setup() {
     showBootScreen("Connecting Wi-Fi...");
     initNetwork();
 
-    // Reset default flight info
-    memset(&currentFlight, 0, sizeof(currentFlight));
-    currentFlight.has_active_flight = false;
-    currentFlight.tracked_count = 0;
+    memset(&telemetry_data, 0, sizeof(telemetry_data));
+    telemetry_data.flight_count = 0;
+    telemetry_data.tracked_count = 0;
+    strncpy(telemetry_data.active_runways_summary, "30R, 30L", sizeof(telemetry_data.active_runways_summary) - 1);
 
     showBootScreen("Ready! Polling Pi...");
     delay(600);
 }
 
 void loop() {
-    // 1. Continuous LED Animation Rendering (~30 FPS)
+    // 1. Continuous LED Animation Rendering (~33 FPS, comet or idle yellow strobe)
     renderRunwayAnimations();
 
     // 2. Poll Raspberry Pi API for new telemetry
-    if (pollTelemetryData(currentFlight)) {
-        updateDisplayFlight(currentFlight);
-        last_oled_refresh = millis();
+    if (pollTelemetryData(telemetry_data)) {
+        updateTelemetryData(telemetry_data);
     }
 
-    // 3. Periodic display refresh (every 3 seconds) for idle animations / clock updates
-    if (millis() - last_oled_refresh > 3000) {
-        updateDisplayFlight(currentFlight);
-        last_oled_refresh = millis();
-    }
+    // 3. Render OLED display (handles 3-second multi-flight cycling and idle state)
+    renderDisplayLoop();
 
     // 4. Background Wi-Fi health check (every 10 seconds)
     if (millis() - last_wifi_check > 10000) {
@@ -70,7 +65,7 @@ void loop() {
         delay(50); // Debounce
         if (digitalRead(PIN_USER_BUTTON) == LOW) {
             Serial.println(F("[Button] User SW1 pressed. Forcing display refresh."));
-            updateDisplayFlight(currentFlight);
+            renderDisplayLoop();
             while (digitalRead(PIN_USER_BUTTON) == LOW) {
                 delay(10);
             }
