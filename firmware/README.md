@@ -61,9 +61,18 @@ pio run
 ```
 
 ### 2. Upload to ESP32-S3
-Connect your USB-to-UART programmer to header `J2` (or the USB-C port if using native USB CDC):
+Connect your external USB-to-UART programmer (e.g., FTDI / CP2102) to 3-pin header `J2`:
+- Programmer TX &rarr; Board RX (`GPIO44` / J2-Pin 3)
+- Programmer RX &rarr; Board TX (`GPIO43` / J2-Pin 2)
+- Programmer GND &rarr; Board GND (J2-Pin 1)
+
+Hold down `SW1` (GPIO0) while tapping `SW2` (Reset) to enter bootloader mode, then upload:
 ```bash
-pio run --target upload
+# Upload for Board 1 (Home Wi-Fi mode):
+pio run -e home_wifi -t upload
+
+# Upload for Board 2 (Office BLE mode):
+pio run -e office_ble -t upload
 ```
 
 ### 3. Open Serial Monitor (115200 Baud)

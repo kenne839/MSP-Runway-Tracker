@@ -1,13 +1,12 @@
 """
 KMSP Runway LED Tracker - Office PC Bridge
-Transmits live KMSP flight telemetry to the ESP32-S3 Office Board over BLE (Bluetooth Low Energy)
-or USB Serial.
+Transmits live KMSP flight telemetry to the ESP32-S3 Office Board wirelessly over BLE
+(Bluetooth Low Energy).
 
 Usage:
-    python -m office.bridge
-    python office/bridge.py --mode ble
-    python office/bridge.py --mode serial --port COM3
-    python office/bridge.py --test
+    python office/bridge.py          # Auto-connects via BLE
+    python office/bridge.py --test   # Runs hardware test sequence via BLE
+    python office/bridge.py --mode serial --port COM3  # Optional: via Header J2 UART programmer
 """
 
 import os
@@ -33,7 +32,7 @@ NUS_TX_UUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
 
 
 class OfficeBridge:
-    def __init__(self, mode="auto", port=None, poll_interval=15.0):
+    def __init__(self, mode="ble", port=None, poll_interval=15.0):
         self.mode = mode
         self.port = port
         self.poll_interval = poll_interval
@@ -291,10 +290,10 @@ class OfficeBridge:
 
 def main():
     parser = argparse.ArgumentParser(description="KMSP Runway Tracker Office PC Bridge")
-    parser.add_argument("--mode", choices=["auto", "ble", "serial"], default="auto",
-                        help="Transport mode: 'ble', 'serial', or 'auto' (default: auto)")
+    parser.add_argument("--mode", choices=["ble", "serial"], default="ble",
+                        help="Transport mode: 'ble' (default, Bluetooth Low Energy wireless) or 'serial' (via Header J2 UART programmer)")
     parser.add_argument("--port", type=str, default=None,
-                        help="Serial COM port (e.g. COM3 or /dev/ttyACM0) if mode is serial")
+                        help="Serial COM port (e.g. COM3 or /dev/ttyUSB0) if using Header J2 programmer")
     parser.add_argument("--interval", type=float, default=15.0,
                         help="OpenSky polling interval in seconds (default: 15.0)")
     parser.add_argument("--test", action="store_true",

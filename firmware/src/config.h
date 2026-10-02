@@ -16,8 +16,11 @@
 #define SCREEN_WIDTH        128
 #define SCREEN_HEIGHT       64
 
-// Hardware Buttons
-#define PIN_USER_BUTTON     0   // SW1 on GPIO0 (Active LOW, pulled up to 3V3)
+// Hardware Buttons & Programming Header J2
+#define PIN_USER_BUTTON     0   // SW1 on GPIO0 (Active LOW boot button / user button)
+// Header J2: 3-pin UART (Pin 1: GND, Pin 2: GPIO43 TXD0, Pin 3: GPIO44 RXD0)
+#define PIN_UART_TX         43  // Header J2 TXD0
+#define PIN_UART_RX         44  // Header J2 RXD0
 
 // =============================================================================
 // LED MATRIX & POWER MANAGEMENT
