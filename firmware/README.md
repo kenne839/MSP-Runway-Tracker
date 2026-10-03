@@ -1,6 +1,12 @@
 # MSP Runway LED Tracker - ESP32-S3 Firmware
 
-This firmware runs on the custom **ESP32-S3-WROOM-1-N16R8** PCB. It connects to your local Wi-Fi network, polls the Raspberry Pi's REST endpoint (`/api/runway_state`), renders real-time approach/roll animations across the 84 WS2812B LEDs, and displays flight telemetry on the SSD1306 OLED screen.
+This firmware runs on custom **ESP32-S3-WROOM-1-N16R8** hardware (16MB Flash, 8MB Octal PSRAM) to animate 84 WS2812B addressable LEDs depicting real-time KMSP runway activity and display rich flight telemetry on a UCTRONICS 0.96" dual-color (Yellow/Blue) SSD1306 OLED screen.
+
+The firmware supports two distinct deployment environments:
+1. **Board 1 (Home Setup - Wi-Fi Mode `env:home_wifi`):**
+   Connects to local Wi-Fi and polls telemetry via HTTP REST (`/api/runway_state`) from a dedicated headless **Raspberry Pi 3 Model A+ (512MB RAM)** running the `rpi.main` daemon.
+2. **Board 2 (Office Setup - BLE Mode `env:office_ble`):**
+   Operates 100% wirelessly over Bluetooth Low Energy (BLE 5.0 Nordic UART Service), receiving real-time telemetry pushed directly from an office PC running `office/bridge.py` without requiring corporate Wi-Fi access or tethering cables.
 
 ---
 
@@ -34,6 +40,17 @@ The 84 WS2812B LEDs are daisy-chained (`U2` &rarr; `U85`). The hardware layout i
 * **Takeoffs (Takeoff Acceleration Roll):** The comet initiates where the aircraft starts its takeoff roll. It accelerates down the runway toward the departure end with a high-energy warm white head and an afterburner amber / gold / orange flame tail.
 * **Simultaneous Operations:** Each runway zone tracks independent animation state machines, allowing parallel approaches or simultaneous crosswind departures without visual interference.
 
+---
+
+## OLED Display Geometry (UCTRONICS 0.96" Dual-Color SSD1306)
+
+The firmware is custom-tailored for the **UCTRONICS 0.96" 128x64 Dual-Color Yellow/Blue OLED** (`SDA: GPIO1`, `SCL: GPIO2`):
+* **Rows 0 – 15 (Yellow Zone):** Reserved for the airport header, active runway designation (`RWY 30L`), operation badge (`LANDING` / `TAKEOFF`), and multi-flight cycle indicator (`[1/2]`).
+* **Rows 16 – 63 (Blue Zone):** Formatted for clean flight telemetry:
+  - **Row 16:** Callsign & Airline (e.g., `Delta Air Lines 793` or `SkyWest 3822`)
+  - **Row 28:** Airframe Model (e.g., `Boeing 737-900` or `Airbus A321neo`)
+  - **Row 40:** Route / Origin / Destination (e.g., `From KDEN` or `To KORD`)
+  - **Row 54:** Connection & Update Status Footer
 
 ---
 

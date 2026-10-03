@@ -15,17 +15,55 @@ The service polls ADS-B state vectors from the OpenSky Network, projects aircraf
 
 ```mermaid
 flowchart TD
-    API["OpenSky Network REST API<br/>(/states/all & /routes)"] -->|ADS-B State Vectors| SCRIPT["script.py<br/>Spatial & Kinematic Pipeline"]
+    API["OpenSky Network REST API<br/>(/states/all & /routes)"] --> INGEST["Telemetry Ingestion Engine<br/>(Spatial Projection & Kinematic Gating)"]
     
-    AIRLINES["airlines.json<br/>(ICAO Prefix Table)"] -->|Airline Name| SCRIPT
-    AIRFRAMES["airframes.json<br/>(Type Code Mapping)"] -->|Friendly Airframe Name| SCRIPT
-    DB["msp_aircraft_db.json<br/>(480k+ Transponder Cache)"] <-->|Hex Lookup / Cache| SCRIPT
-    HEXDB["HexDB REST API<br/>(hexdb.io)"] -.->|Dynamic Fallback| SCRIPT
+    META["Airlines, Airframes & Transponder DB<br/>(480k+ Aircraft Cache + HexDB Fallback)"] --> INGEST
     
-    SCRIPT -->|Active Movement Event| OUTPUT["runway_state.json<br/>(Decoupled State Output)"]
+    subgraph HOME["Home Deployment: Board 1"]
+        PI["Raspberry Pi 3 Model A+ (512MB RAM)<br/>(Headless rpi.main Daemon)"]
+        INGEST --> PI
+        PI -->|Wi-Fi HTTP REST /api/runway_state| ESP_HOME["ESP32-S3 Board (env: home_wifi)<br/>84 WS2812B LEDs + Dual-Color OLED"]
+        PI -->|Web UI / Simulator| DASH["Browser Dashboard (:8080)"]
+    end
     
-    OUTPUT -->|Consumes State| HARDWARE["Downstream Clients<br/>(ESP32, LED Matrix, Home Assistant)"]
+    subgraph OFFICE["Office Deployment: Board 2"]
+        PC["Office PC / Workstation<br/>(office/bridge.py Companion)"]
+        INGEST --> PC
+        PC -->|Pure Wireless BLE 5.0 (Nordic UART)| ESP_OFFICE["ESP32-S3 Board (env: office_ble)<br/>84 WS2812B LEDs + Dual-Color OLED"]
+    end
 ```
+
+---
+
+## Hardware & Deployment Configurations
+
+The project supports two distinct physical hardware setups:
+
+### 1. Board 1: Home Setup (Wi-Fi + Raspberry Pi 3 Model A+)
+- **Microcontroller:** Custom **ESP32-S3-WROOM-1-N16R8** PCB (16MB Flash, 8MB Octal PSRAM) running PlatformIO environment `home_wifi`.
+- **Telemetry Server:** Dedicated headless **Raspberry Pi 3 Model A+ (512MB RAM)**:
+  - Broadcom BCM2837B0 Quad-Core 64-bit ARM Cortex-A53 @ 1.4 GHz
+  - Dual-band 2.4 GHz & 5.0 GHz IEEE 802.11ac Wi-Fi
+  - Low memory footprint (~40 MB RAM usage for daemon + 480k aircraft DB)
+  - Hosted systemd daemon (`rpi.main`) serving `/api/runway_state` and real-time web dashboard/simulator at port `8080`.
+- **Displays:**
+  - 84 individually addressable WS2812B runway LEDs (approach and rollout comets).
+  - UCTRONICS 0.96" Dual-Color (Yellow/Blue) SSD1306 OLED (Header/Runway/Action on yellow rows 0–15; Callsign, Airline, Airframe, Route on blue rows 16–63).
+
+### 2. Board 2: Office Setup (Wireless BLE 5.0 + PC Companion)
+- **Microcontroller:** Custom **ESP32-S3-WROOM-1-N16R8** PCB running PlatformIO environment `office_ble`.
+- **PC Companion:** Python bridge script ([`office/bridge.py`](office/README.md)) running locally in the background on your office workstation.
+  - No corporate Wi-Fi access, static IP, or router configuration required.
+  - Automatically pairs and streams runway telemetry over **Bluetooth Low Energy 5.0** (Nordic UART Service).
+  - Completely wireless desktop operation powered by standard 5V USB.
+- **Displays:** Same 84 WS2812B LED array and UCTRONICS 0.96" Dual-Color OLED screen.
+
+### Hardware Pinout & Programming
+Both boards feature a **3-Pin UART Header `J2`** for external USB-to-UART programmer connection (FTDI / CP2102):
+- **Pin 1:** `GND`
+- **Pin 2:** `GPIO43` (`TXD0`) &rarr; Programmer RX
+- **Pin 3:** `GPIO44` (`RXD0`) &rarr; Programmer TX
+*(Firmware is compiled with `ARDUINO_USB_CDC_ON_BOOT=0` so serial logging and programming map directly to Header J2).*
 
 ---
 
@@ -39,21 +77,24 @@ flowchart TD
   - **Airframes:** Decodes transponder hex codes to readable aircraft types (e.g., `A21N` &rarr; *Airbus A321neo*, `B738` &rarr; *Boeing 737-800*).
   - **Routes:** Resolves origin airports for arrivals and destination airports for departures.
   - **Dynamic Fallback:** Queries [HexDB](https://hexdb.io) for unseen airframes and caches results locally.
-- **Decoupled JSON Interface:** Writes atomic telemetry snapshots to `runway_state.json`, separating data ingestion from display rendering.
+- **Decoupled JSON Interface:** Writes atomic telemetry snapshots to `runway_state.json` and serves `/api/runway_state`.
 
 ---
 
-## File Structure
+## Repository Structure
 
-| File | Purpose |
+| Directory / File | Purpose |
 | :--- | :--- |
-| [`script.py`](script.py) | Main telemetry daemon: polling loop, kinematic gating, runway matching, and state export. |
+| [`firmware/`](firmware/README.md) | ESP32-S3 PlatformIO C++ firmware with dual environments (`home_wifi` & `office_ble`). |
+| [`rpi/`](rpi/README.md) | Raspberry Pi 3 Model A+ telemetry service, REST API, web dashboard, and hardware simulator. |
+| [`office/`](office/README.md) | Office PC BLE companion bridge (`bridge.py`) for wireless corporate desk setup. |
+| [`script.py`](script.py) | Standalone Python telemetry script: polling loop, kinematic gating, runway matching, state export. |
 | [`seed_database.py`](seed_database.py) | Utility to download and parse OpenSky's official aircraft metadata database into local JSON cache. |
 | [`airlines.json`](airlines.json) | Static mapping of 3-letter ICAO airline designators to commercial operator names. |
 | [`airframes.json`](airframes.json) | Static mapping of ICAO aircraft designators to clean, readable names. |
 | [`msp_aircraft_db.json`](msp_aircraft_db.json) | Local persistent registry of 480k+ 24-bit ICAO transponder addresses mapped to type codes. |
 | [`runway_state.json`](runway_state.json) | Ephemeral output file updated every cycle with the latest detected operation. *(Ignored by git)* |
-| [`requirements.txt`](requirements.txt) | Python dependencies. |
+| [`requirements.txt`](requirements.txt) | Root Python dependencies. |
 
 ---
 

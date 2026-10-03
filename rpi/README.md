@@ -1,12 +1,21 @@
 # MSP Runway Tracker - Raspberry Pi Telemetry Daemon & Web Service
 
+The Raspberry Pi service is designed for headless 24/7 operation on the **Raspberry Pi 3 Model A+ (512MB RAM)**.
+
+### Target Hardware: Raspberry Pi 3 Model A+ (Plus)
+- **CPU:** Quad-Core 64-bit ARM Cortex-A53 @ 1.4 GHz (Broadcom BCM2837B0)
+- **RAM:** 512 MB LPDDR2 SDRAM *(Telemetry daemon consumes ~40 MB, leaving >90% headroom)*
+- **Wireless:** Dual-band 2.4 GHz and 5.0 GHz IEEE 802.11ac Wi-Fi & Bluetooth 4.2 / BLE
+- **Form Factor:** Compact 65 &times; 56 mm square layout (no bulky Ethernet jack)
+- **Power:** 5V / 2.5A via standard Micro-USB
+
 The Raspberry Pi service is responsible for:
 1. Polling ADS-B telemetry data (via OpenSky Network REST API or local RTL-SDR `dump1090` / `readsb` feeder).
 2. Projecting aircraft positions onto KMSP runways (`12L/30R`, `12R/30L`, `4/22`, `17/35`) and gating by velocity, altitude, and vertical speed.
 3. Disambiguating intersecting runways (e.g. 4/22 crossing 12L/30R) by orthogonal distance and heading alignment.
 4. Resolving 24-bit ICAO transponder hex codes against the local 480k-aircraft registry with HexDB fallback.
 5. Serving the real-time aggregated JSON payload over HTTP (`/api/runway_state`) to downstream clients like the ESP32-S3 LED display.
-6. Providing an in-memory web dashboard (`/`) for visual monitoring.
+6. Providing an in-memory web dashboard (`/`) and interactive hardware simulator (`/simulator`).
 7. Protecting MicroSD card health by caching all state in RAM and serving directly from memory (or `/dev/shm`).
 
 ---
