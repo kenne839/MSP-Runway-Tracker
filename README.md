@@ -15,21 +15,21 @@ The service polls ADS-B state vectors from the OpenSky Network, projects aircraf
 
 ```mermaid
 flowchart TD
-    API["OpenSky Network REST API<br/>(/states/all & /routes)"] --> INGEST["Telemetry Ingestion Engine<br/>(Spatial Projection & Kinematic Gating)"]
+    API["OpenSky Network REST API<br/>(/states/all and /routes)"] --> INGEST["Telemetry Ingestion Engine<br/>(Spatial Projection & Kinematic Gating)"]
     
     META["Airlines, Airframes & Transponder DB<br/>(480k+ Aircraft Cache + HexDB Fallback)"] --> INGEST
     
     subgraph HOME["Home Deployment: Board 1"]
         PI["Raspberry Pi 3 Model A+ (512MB RAM)<br/>(Headless rpi.main Daemon)"]
         INGEST --> PI
-        PI -->|Wi-Fi HTTP REST /api/runway_state| ESP_HOME["ESP32-S3 Board (env: home_wifi)<br/>84 WS2812B LEDs + Dual-Color OLED"]
-        PI -->|Web UI / Simulator| DASH["Browser Dashboard (:8080)"]
+        PI -->|"Wi-Fi HTTP REST /api/runway_state"| ESP_HOME["ESP32-S3 Board (env: home_wifi)<br/>84 WS2812B LEDs + Dual-Color OLED"]
+        PI -->|"Web UI / Simulator"| DASH["Browser Dashboard :8080"]
     end
     
     subgraph OFFICE["Office Deployment: Board 2"]
         PC["Office PC / Workstation<br/>(office/bridge.py Companion)"]
         INGEST --> PC
-        PC -->|Pure Wireless BLE 5.0 (Nordic UART)| ESP_OFFICE["ESP32-S3 Board (env: office_ble)<br/>84 WS2812B LEDs + Dual-Color OLED"]
+        PC -->|"Pure Wireless BLE 5.0 - Nordic UART"| ESP_OFFICE["ESP32-S3 Board (env: office_ble)<br/>84 WS2812B LEDs + Dual-Color OLED"]
     end
 ```
 
@@ -122,8 +122,8 @@ $$t = \frac{\vec{AP} \cdot \vec{AB}}{\|\vec{AB}\|^2}$$
 - **Ground Speed Threshold:** Velocity must exceed $35.0\text{ m/s}$ ($\approx 68\text{ knots}$) to filter out ground tugs, stationary tarmac transponders, and slow taxi traffic.
 - **Altitude Ceiling:** Barometric altitude must remain below $1,200\text{ m}$ ($\approx 3,937\text{ ft MSL}$) to filter en-route traffic.
 - **Vertical Rate Gate:**
-  - $\text{vertical\_rate} > +1.5\text{ m/s} \implies \text{TAKING OFF}$
-  - $\text{vertical\_rate} < -1.5\text{ m/s} \implies \text{LANDING}$
+  - $\text{Vertical Rate} > +1.5\text{ m/s} \implies \text{TAKING OFF}$
+  - $\text{Vertical Rate} < -1.5\text{ m/s} \implies \text{LANDING}$
   - Level transit ($\pm 1.5\text{ m/s}$) is dropped.
 
 ---
@@ -210,9 +210,9 @@ The home setup runs autonomously 24/7 on a headless **Raspberry Pi 3 Model A+**.
 
 ```mermaid
 flowchart LR
-    OS["OpenSky Network API<br/>(4,000 req/day quota)"] -->|Every 30s| PI["Raspberry Pi 3 Model A+<br/>(rpi.main Daemon :8080)"]
-    PI -->|Local Wi-Fi HTTP REST| ESP1["ESP32-S3 Home Board<br/>(84 LEDs + OLED)"]
-    PI -->|HTTP :8080| WEB["Browser Live Dashboard & Simulator"]
+    OS["OpenSky Network API<br/>4,000 req/day quota"] -->|"Every 30s"| PI["Raspberry Pi 3 Model A+<br/>rpi.main Daemon"]
+    PI -->|"Local Wi-Fi HTTP REST"| ESP1["ESP32-S3 Home Board<br/>84 LEDs + OLED"]
+    PI -->|"HTTP :8080"| WEB["Browser Live Dashboard and Simulator"]
 ```
 
 ### Raspberry Pi Setup
@@ -248,9 +248,9 @@ Designed specifically for corporate office environments where:
 
 ```mermaid
 flowchart LR
-    OS2["OpenSky Network API<br/>(4,000 req/day Office Quota)"] -->|Corporate Internet| PC["Office PC / Workstation<br/>(office/bridge.py :18080)"]
-    PC -->|Pure Wireless BLE 5.0| ESP2["ESP32-S3 Office Board<br/>(Desk Display)"]
-    PC -->|Local Browser :18080| DASH["Office Web Dashboard & Sim"]
+    OS2["OpenSky Network API<br/>4,000 req/day Office Quota"] -->|"Corporate Internet"| PC["Office PC / Workstation<br/>office/bridge.py"]
+    PC -->|"Pure Wireless BLE 5.0"| ESP2["ESP32-S3 Office Board<br/>Desk Display"]
+    PC -->|"Local Browser :18080"| DASH["Office Web Dashboard and Simulator"]
 ```
 
 ---
