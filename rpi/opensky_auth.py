@@ -62,7 +62,6 @@ class OpenSkyAuth:
                 os.path.join(self.project_root, "opensky_credentials.json"),
                 os.path.join(self.project_root, "rpi", "credentials.json"),
                 os.path.join(self.project_root, "rpi", "data", "credentials.json"),
-                os.path.join(os.getcwd(), "credentials.json"),
             ]
             for path in candidate_files:
                 if os.path.isfile(path):
