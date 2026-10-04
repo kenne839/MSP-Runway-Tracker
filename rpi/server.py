@@ -70,16 +70,21 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             <div id="activeCount" class="metric">0</div>
         </div>
         <div class="card">
-            <h3>Airspace Traffic Tracked</h3>
+            <h3>Runway Roles</h3>
+            <div id="runwayRoles" class="metric" style="font-size: 1.15rem; color: var(--accent-green);">Standby</div>
+        </div>
+        <div class="card">
+            <h3>KMSP METAR Weather</h3>
+            <div id="weatherSummary" class="metric" style="font-size: 1.05rem; color: var(--accent-blue);">Loading...</div>
+            <div id="weatherDetails" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">--</div>
+        </div>
+        <div class="card">
+            <h3>Airspace Tracked</h3>
             <div id="trackedCount" class="metric">0</div>
         </div>
         <div class="card">
-            <h3>Telemetry Source</h3>
-            <div id="telemetrySource" class="metric" style="font-size: 1.3rem;">OpenSky</div>
-        </div>
-        <div class="card">
             <h3>Last Update</h3>
-            <div id="lastUpdate" class="metric" style="font-size: 1.1rem; color: var(--accent-blue);">--:--:--</div>
+            <div id="lastUpdate" class="metric" style="font-size: 1.1rem; color: var(--text-muted);">--:--:--</div>
         </div>
     </div>
 
@@ -117,8 +122,21 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 
                 document.getElementById('activeCount').innerText = data.active_count;
                 document.getElementById('trackedCount').innerText = data.tracked_count;
-                document.getElementById('telemetrySource').innerText = data.source;
                 document.getElementById('lastUpdate').innerText = new Date(data.timestamp * 1000).toLocaleTimeString();
+
+                // Runway Roles
+                if (data.runway_roles && data.runway_roles.full_summary) {
+                    document.getElementById('runwayRoles').innerText = data.runway_roles.full_summary;
+                } else if (data.runway_roles_summary) {
+                    document.getElementById('runwayRoles').innerText = data.runway_roles_summary;
+                }
+
+                // Weather
+                if (data.weather) {
+                    const w = data.weather;
+                    document.getElementById('weatherSummary').innerText = `${w.flight_category} • ${w.temp_f}°F • ${w.wind}`;
+                    document.getElementById('weatherDetails').innerText = `Baro: ${w.pressure} | Sky: ${w.condition}`;
+                }
 
                 // Render Runways
                 const rwContainer = document.getElementById('runwayGrid');

@@ -116,7 +116,24 @@ bool pollTelemetryData(DisplayTelemetryData& out_telemetry) {
 
     out_telemetry.has_had_event = hasHadEventOccurred();
 
-    // Update summary string of recently active runways for the OLED idle display
+    // 3. Parse live METAR weather
+    JsonObject weather = doc["weather"];
+    if (!weather.isNull()) {
+        strncpy(out_telemetry.weather.flight_category, weather["flight_category"] | "VFR", sizeof(out_telemetry.weather.flight_category) - 1);
+        out_telemetry.weather.temp_f = weather["temp_f"] | 59;
+        strncpy(out_telemetry.weather.wind, weather["wind"] | "Calm", sizeof(out_telemetry.weather.wind) - 1);
+        strncpy(out_telemetry.weather.pressure, weather["pressure"] | "30.00 inHg", sizeof(out_telemetry.weather.pressure) - 1);
+        strncpy(out_telemetry.weather.condition, weather["condition"] | "Clear", sizeof(out_telemetry.weather.condition) - 1);
+        out_telemetry.weather.valid = true;
+    }
+
+    // 4. Parse runway roles summary (e.g. "ARR 30R / DEP 30L")
+    const char* roles_summary = doc["runway_roles_summary"] | (doc["runway_roles"]["summary"] | "");
+    if (roles_summary && strlen(roles_summary) > 0) {
+        strncpy(out_telemetry.runway_roles_summary, roles_summary, sizeof(out_telemetry.runway_roles_summary) - 1);
+    }
+
+    // Update fallback summary string of recently active runways
     getRecentlyActiveRunwaysStr(out_telemetry.active_runways_summary, sizeof(out_telemetry.active_runways_summary));
 
     return true;

@@ -356,6 +356,7 @@ const PCB_LEDS = [
 
             hasHadEvent = true;
             enforceOperationalFlow(runway);
+            recordRunwayOperation(runway, action);
 
             for (let seg of RUNWAYS) {
                 if (seg.name_start === runway) {
@@ -398,14 +399,106 @@ const PCB_LEDS = [
             }
         }
 
-        function getRecentRunwaysString() {
-            let activeNames = [];
-            for (let seg of RUNWAYS) {
-                if (seg.was_recently_used) {
-                    activeNames.push(seg.recent_forward ? seg.name_start : seg.name_end);
-                }
+        // Operational Runway Role Tracking (Arrivals vs Departures)
+        let lastLandingRunway = null;
+        let lastDepartureRunway = null;
+        let activeFlowGroup = null;
+
+        const FLOW_GROUP_MAP = {
+            "30R": "30", "30L": "30",
+            "12L": "12", "12R": "12",
+            "4": "4", "22": "22",
+            "17": "17", "35": "35"
+        };
+
+        function recordRunwayOperation(runway, action) {
+            const flowGrp = FLOW_GROUP_MAP[runway];
+            if (flowGrp && activeFlowGroup && flowGrp !== activeFlowGroup) {
+                lastLandingRunway = null;
+                lastDepartureRunway = null;
             }
-            return activeNames.length > 0 ? activeNames.join(', ') : "None";
+            if (flowGrp) activeFlowGroup = flowGrp;
+
+            if (action === "LANDING") {
+                lastLandingRunway = runway;
+            } else if (action === "TAKEOFF" || action === "TAKING OFF") {
+                lastDepartureRunway = runway;
+            }
+        }
+
+        function getRunwayRolesSummary() {
+            if (lastLandingRunway && lastDepartureRunway) {
+                return `ARR ${lastLandingRunway} / DEP ${lastDepartureRunway}`;
+            } else if (lastLandingRunway) {
+                return `LANDING: ${lastLandingRunway}`;
+            } else if (lastDepartureRunway) {
+                return `DEPARTURES: ${lastDepartureRunway}`;
+            } else {
+                return "RW: Standby";
+            }
+        }
+
+        // Live KMSP Surface Weather (METAR)
+        let currentWeather = {
+            flight_category: "VFR",
+            temp_f: 59,
+            temp_c: 15,
+            wind: "270@11kt",
+            pressure: "30.06 inHg",
+            condition: "Broken",
+            raw: "METAR KMSP 040153Z 27011KT 10SM BKN085 15/12 A3006"
+        };
+
+        async function fetchLiveMetar() {
+            try {
+                const res = await fetch('https://aviationweather.gov/api/data/metar?ids=KMSP&format=json');
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data && data.length > 0) {
+                    const ob = data[0];
+                    const tempC = ob.temp;
+                    const tempF = (tempC !== null && tempC !== undefined) ? Math.round(tempC * 9 / 5 + 32) : 59;
+                    const wdir = ob.wdir;
+                    const wspd = ob.wspd;
+                    const wgst = ob.wgst;
+                    let windStr = "Calm";
+                    if (wdir !== null && wspd !== null && wspd > 0) {
+                        windStr = wgst ? `${String(wdir).padStart(3, '0')}@${wspd}G${wgst}kt` : `${String(wdir).padStart(3, '0')}@${wspd}kt`;
+                    }
+                    const raw = ob.rawOb || "";
+                    const mAlt = raw.match(/\bA(\d{2})(\d{2})\b/);
+                    const pressure = mAlt ? `${mAlt[1]}.${mAlt[2]} inHg` : (ob.altim ? `${(ob.altim * 0.02953).toFixed(2)} inHg` : "30.06 inHg");
+                    
+                    const wxPhenomena = {
+                        "-RA": "Light Rain", "RA": "Rain", "+RA": "Heavy Rain",
+                        "-SN": "Light Snow", "SN": "Snow", "+SN": "Heavy Snow",
+                        "TSRA": "T-Storm", "FZRA": "Frz Rain", "BR": "Mist", "FG": "Fog", "HZ": "Haze"
+                    };
+                    let condition = wxPhenomena[ob.wxString] || ob.wxString;
+                    if (!condition) {
+                        const coverMap = { "CLR": "Clear", "SKC": "Clear", "FEW": "Few Clouds", "SCT": "Partly Cloudy", "BKN": "Broken", "OVC": "Overcast" };
+                        condition = coverMap[ob.cover] || ob.cover || "Clear";
+                    }
+                    
+                    currentWeather = {
+                        flight_category: ob.fltCat || "VFR",
+                        temp_f: tempF,
+                        temp_c: tempC,
+                        wind: windStr,
+                        pressure: pressure,
+                        condition: condition,
+                        raw: raw
+                    };
+                }
+            } catch (e) {
+                // Keep current/cached weather
+            }
+        }
+        fetchLiveMetar();
+        setInterval(fetchLiveMetar, 300000); // 5-minute update rate
+
+        function getRecentRunwaysString() {
+            return getRunwayRolesSummary();
         }
 
         // Emulates UCTRONICS Dual-Color Yellow & Blue OLED
@@ -446,23 +539,16 @@ const PCB_LEDS = [
             } else {
                 // TOP YELLOW ZONE (Idle: Yellow Text & Dividing Line)
                 yellowZone.className = "bg-black px-3 py-1.5 border-b border-yellow-500/50 flex justify-between items-center text-xs font-bold font-mono tracking-wider";
-                header.innerText = "KMSP RUNWAY MONITOR";
+                header.innerText = "KMSP AIRPORT";
                 header.className = "text-yellow-400 drop-shadow-[0_0_6px_rgba(250,204,21,0.8)]";
-                cycleIndicator.innerText = "IDLE";
+                cycleIndicator.innerText = `[${currentWeather.flight_category}]`;
                 cycleIndicator.className = "text-yellow-400 drop-shadow-[0_0_6px_rgba(250,204,21,0.8)]";
 
-                // BOTTOM BLUE ZONE (Idle: Glowing Cyan/Blue)
-                if (hasHadEvent) {
-                    callsign.innerText = `Flow: RW ${getRecentRunwaysString()}`;
-                    aircraft.innerText = "[Yellow Strobe Active]";
-                    route.innerText = "Airspace: 14 aircraft tracked";
-                    status.innerText = "Telemetry Polling OK";
-                } else {
-                    callsign.innerText = "System Online";
-                    aircraft.innerText = "Waiting for traffic...";
-                    route.innerText = "Airspace: 14 aircraft tracked";
-                    status.innerText = "OpenSky Polling Ready";
-                }
+                // BOTTOM BLUE ZONE (Idle: Runway Roles & Live METAR Weather)
+                callsign.innerText = getRunwayRolesSummary();
+                aircraft.innerText = `Wind ${currentWeather.wind}  ${currentWeather.temp_f}°F`;
+                route.innerText = `Baro ${currentWeather.pressure} | ${currentWeather.condition}`;
+                status.innerText = hasHadEvent ? "Airspace: Active | METAR OK" : "Airspace: Polling Ready";
             }
         }
 
@@ -472,8 +558,16 @@ const PCB_LEDS = [
                 const res = await fetch('/api/runway_state');
                 if (!res.ok) return;
                 const data = await res.json();
+                if (data.weather) {
+                    currentWeather = data.weather;
+                }
+                if (data.runway_roles) {
+                    if (data.runway_roles.landing) lastLandingRunway = data.runway_roles.landing;
+                    if (data.runway_roles.departure) lastDepartureRunway = data.runway_roles.departure;
+                }
                 if (data.active_operations && data.active_operations.length > 0) {
                     hasHadEvent = true;
+                    data.active_operations.forEach(op => recordRunwayOperation(op.runway, op.action));
                     activeFlightEvents = data.active_operations.map(op => ({
                         runway: op.runway,
                         action: op.action,

@@ -39,6 +39,8 @@ void initDisplay() {
     memset(&current_data, 0, sizeof(current_data));
     current_data.has_had_event = false;
     current_data.active_runways_summary[0] = '\0';
+    current_data.runway_roles_summary[0] = '\0';
+    current_data.weather.valid = false;
 }
 
 void showBootScreen(const char* status_text) {
@@ -163,49 +165,80 @@ void renderDisplayLoop() {
         }
     } else {
         // =====================================================================
-        // IDLE SCREEN: Showing active configuration or initial readiness
+        // IDLE SCREEN: Showing active runway roles & live KMSP METAR weather
         // =====================================================================
         
         // TOP YELLOW ZONE (Rows y = 0 to 15)
         display.setTextSize(1);
         display.setTextColor(SSD1306_WHITE);
         display.setCursor(4, 3);
-        display.println(F("KMSP RUNWAY MONITOR"));
+        display.print(F("KMSP AIRPORT"));
+
+        // Flight condition category badge e.g. [VFR] or [IFR]
+        if (current_data.weather.valid) {
+            display.setCursor(84, 3);
+            display.print(F("["));
+            display.print(current_data.weather.flight_category);
+            display.print(F("]"));
+        } else {
+            display.setCursor(96, 3);
+            display.print(F("[IDLE]"));
+        }
         display.drawFastHLine(0, 15, SCREEN_WIDTH, SSD1306_WHITE); // Yellow dividing line
 
         // BOTTOM BLUE ZONE (Rows y = 16 to 63)
-        if (current_data.has_had_event) {
-            display.setCursor(0, 19);
-            display.print(F("Flow: RW "));
+        // Row 1 (y = 18): Runway Operational Roles (e.g. ARR 30R / DEP 30L)
+        display.setCursor(0, 18);
+        if (current_data.runway_roles_summary[0] != '\0') {
+            display.println(current_data.runway_roles_summary);
+        } else if (current_data.active_runways_summary[0] != '\0') {
+            display.print(F("RW: "));
             display.println(current_data.active_runways_summary);
-
-            display.setCursor(0, 30);
-            display.println(F("[Yellow Strobe Active]"));
-
-            display.setCursor(0, 41);
-            display.print(F("Airspace: "));
-            display.print(current_data.tracked_count);
-            display.print(F(" planes"));
-
-            display.drawFastHLine(0, 51, SCREEN_WIDTH, SSD1306_WHITE);
-            display.setCursor(0, 54);
-            display.print(F("Telemetry Polling OK"));
         } else {
-            // Initial state before any flight has occurred
-            display.setCursor(0, 19);
-            display.println(F("System Online"));
+            display.println(F("RW: Standby"));
+        }
 
-            display.setCursor(0, 30);
-            display.println(F("Waiting for traffic..."));
+        // Row 2 (y = 29): Wind & Temperature (e.g. Wind 270@11kt  59F)
+        display.setCursor(0, 29);
+        if (current_data.weather.valid) {
+            display.print(F("Wind "));
+            display.print(current_data.weather.wind);
+            display.print(F("  "));
+            display.print(current_data.weather.temp_f);
+            display.println(F("F"));
+        } else {
+            display.println(F("Wind: Polling METAR..."));
+        }
 
-            display.setCursor(0, 41);
+        // Row 3 (y = 40): Pressure & Condition (e.g. Baro 30.06\" Broken)
+        display.setCursor(0, 40);
+        if (current_data.weather.valid) {
+            display.print(F("Baro "));
+            char p_buf[12];
+            strncpy(p_buf, current_data.weather.pressure, sizeof(p_buf) - 1);
+            p_buf[sizeof(p_buf) - 1] = '\0';
+            char* inhg = strstr(p_buf, " inHg");
+            if (inhg) *inhg = '\0';
+            display.print(p_buf);
+            display.print(F("\" "));
+            display.println(current_data.weather.condition);
+        } else {
             display.print(F("Airspace: "));
             display.print(current_data.tracked_count);
-            display.print(F(" planes"));
+            display.println(F(" planes"));
+        }
 
-            display.drawFastHLine(0, 51, SCREEN_WIDTH, SSD1306_WHITE);
-            display.setCursor(0, 54);
-            display.print(F("OpenSky Polling Ready"));
+        // Horizontal blue divider
+        display.drawFastHLine(0, 51, SCREEN_WIDTH, SSD1306_WHITE);
+
+        // Row 4 (y = 54): Status Footer
+        display.setCursor(0, 54);
+        if (current_data.has_had_event) {
+            display.print(F("Airspace: "));
+            display.print(current_data.tracked_count);
+            display.print(F(" tracked"));
+        } else {
+            display.print(F("Telemetry Polling Ready"));
         }
     }
 

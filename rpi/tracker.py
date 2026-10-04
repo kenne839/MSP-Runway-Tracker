@@ -1,6 +1,7 @@
 """
 Core telemetry daemon that polls ADS-B state vectors, executes kinematic & spatial
-corridor gating, and produces a synchronized, multi-aircraft JSON payload.
+corridor gating, tracks runway operational roles (Arrivals / Departures),
+ingests real-time KMSP METAR surface weather, and produces a synchronized JSON payload.
 """
 
 import time
@@ -27,13 +28,30 @@ from .config import (
 )
 from .spatial import get_runway_match
 from .metadata import MetadataResolver
+from .weather import get_current_weather
 
+import sys
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Ensure UTF-8 console output on Windows
+if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
 
 ALL_RUNWAYS = ["12L", "30R", "12R", "30L", "4", "22", "17", "35"]
 
+FLOW_GROUP_MAP = {
+    "30R": "30", "30L": "30",
+    "12L": "12", "12R": "12",
+    "4": "4", "22": "22",
+    "17": "17", "35": "35"
+}
+
+
 class TelemetryState:
-    """Thread-safe state container storing active flight operations."""
+    """Thread-safe state container storing active flight operations, weather, and runway roles."""
     def __init__(self):
         self._lock = threading.Lock()
         self._state = {
@@ -45,14 +63,31 @@ class TelemetryState:
             "active_count": 0,
             "active_operations": [],
             "primary_operation": None,
-            "runway_summary": {rw: {"status": "IDLE", "callsign": None} for rw in ALL_RUNWAYS}
+            "runway_summary": {rw: {"status": "IDLE", "callsign": None} for rw in ALL_RUNWAYS},
+            "weather": {
+                "flight_category": "VFR",
+                "temp_f": 59,
+                "temp_c": 15,
+                "wind": "270@11kt",
+                "pressure": "30.06 inHg",
+                "condition": "Clear",
+                "raw": "METAR KMSP (Pending initialization)"
+            },
+            "runway_roles": {
+                "landing": None,
+                "departure": None,
+                "summary": "RW: Standby",
+                "full_summary": "Standby / Waiting for Traffic"
+            },
+            "runway_roles_summary": "RW: Standby"
         }
 
     def get_snapshot(self) -> dict:
         with self._lock:
             return json.loads(json.dumps(self._state))
 
-    def update(self, tracked_count: int, active_ops: list[dict], source_name: str):
+    def update(self, tracked_count: int, active_ops: list[dict], source_name: str,
+               weather: dict = None, runway_roles: dict = None):
         now_ts = int(time.time())
         now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
@@ -70,6 +105,14 @@ class TelemetryState:
         # Select primary operation (first active or closest to threshold)
         primary = active_ops[0] if active_ops else None
 
+        current_roles = runway_roles or {
+            "landing": None,
+            "departure": None,
+            "summary": "RW: Standby",
+            "full_summary": "Standby / Waiting for Traffic"
+        }
+        current_weather = weather or get_current_weather()
+
         new_state = {
             "timestamp": now_ts,
             "iso_time": now_iso,
@@ -79,7 +122,10 @@ class TelemetryState:
             "active_count": len(active_ops),
             "active_operations": active_ops,
             "primary_operation": primary,
-            "runway_summary": runway_summary
+            "runway_summary": runway_summary,
+            "weather": current_weather,
+            "runway_roles": current_roles,
+            "runway_roles_summary": current_roles.get("summary", "RW: Standby")
         }
 
         with self._lock:
@@ -90,7 +136,6 @@ class TelemetryState:
             temp_file = f"{STATE_FILE}.tmp"
             with open(temp_file, "w", encoding="utf-8") as f:
                 json.dump(new_state, f, indent=2)
-            # Atomic rename prevents file read tearing
             import os
             os.replace(temp_file, STATE_FILE)
         except Exception:
@@ -99,11 +144,16 @@ class TelemetryState:
 
 class TelemetryTracker:
     """Telemetry collector and spatial reasoning engine."""
-    def __init__(self, state: TelemetryState):
-        self.state = state
+    def __init__(self, state: TelemetryState = None):
+        self.state = state if state is not None else TelemetryState()
         self.meta = MetadataResolver()
         self.running = False
         self._thread = None
+        
+        # Runway operational role tracking
+        self.last_landing_runway = None
+        self.last_departure_runway = None
+        self.active_flow_group = None
 
     def start(self):
         self.running = True
@@ -129,32 +179,33 @@ class TelemetryTracker:
                 print(f"[Tracker Error] Unhandled exception in poll loop: {e}")
                 time.sleep(5.0)
 
-    def _poll_opensky(self):
+    def fetch_opensky(self) -> list[dict]:
+        """Polls OpenSky directly and returns parsed aircraft state vectors."""
         auth = (OPENSKY_USERNAME, OPENSKY_PASSWORD) if OPENSKY_USERNAME and OPENSKY_PASSWORD else None
         try:
             res = requests.get(OPENSKY_URL, params=MSP_BBOX, auth=auth, timeout=10, verify=False)
             res.raise_for_status()
             data = res.json()
+            states = data.get("states") or []
+            parsed = []
+            for plane in states:
+                parsed.append({
+                    "icao24": str(plane[0]).strip().lower() if plane[0] else None,
+                    "callsign": str(plane[1]).strip() if plane[1] else "",
+                    "lon": plane[5],
+                    "lat": plane[6],
+                    "altitude_m": plane[7],
+                    "velocity_ms": plane[9],
+                    "heading": plane[10],
+                    "vertical_rate_ms": plane[11]
+                })
+            return parsed
         except Exception as e:
             print(f"[{time.strftime('%X')}] OpenSky API request failed: {e}")
-            return
+            return []
 
-        states = data.get("states") or []
-        parsed_aircraft = []
-        for plane in states:
-            # OpenSky state vector format:
-            # [0] icao24, [1] callsign, [5] lon, [6] lat, [7] baro_alt, [9] velocity, [10] track, [11] vert_rate
-            parsed_aircraft.append({
-                "icao24": str(plane[0]).strip().lower() if plane[0] else None,
-                "callsign": str(plane[1]).strip() if plane[1] else "",
-                "lon": plane[5],
-                "lat": plane[6],
-                "altitude_m": plane[7],
-                "velocity_ms": plane[9],
-                "heading": plane[10],
-                "vertical_rate_ms": plane[11]
-            })
-
+    def _poll_opensky(self):
+        parsed_aircraft = self.fetch_opensky()
         self._process_aircraft_list(parsed_aircraft, "OpenSky")
 
     def _poll_dump1090(self):
@@ -170,7 +221,6 @@ class TelemetryTracker:
         aircraft_raw = data.get("aircraft", [])
         parsed_aircraft = []
         for ac in aircraft_raw:
-            # dump1090 format: hex, flight, lon, lat, alt_baro (ft), speed (kts), track, baro_rate (ft/min)
             alt_m = (ac.get("alt_baro") * 0.3048) if isinstance(ac.get("alt_baro"), (int, float)) else None
             speed_ms = (ac.get("gs") * 0.514444) if isinstance(ac.get("gs"), (int, float)) else None
             vert_ms = (ac.get("baro_rate") * 0.00508) if isinstance(ac.get("baro_rate"), (int, float)) else None
@@ -187,6 +237,14 @@ class TelemetryTracker:
             })
 
         self._process_aircraft_list(parsed_aircraft, "dump1090")
+
+    def process_telemetry(self, aircraft_list: list[dict], source_label: str = "OpenSky"):
+        """Public method for external callers (e.g. Office BLE Bridge)."""
+        self._process_aircraft_list(aircraft_list, source_label)
+
+    def get_state_dict(self) -> dict:
+        """Returns snapshot dictionary."""
+        return self.state.get_snapshot()
 
     def _process_aircraft_list(self, aircraft_list: list[dict], source_label: str):
         active_operations = []
@@ -271,11 +329,53 @@ class TelemetryTracker:
             for flow in VALID_FLOWS:
                 matches = [op for op in active_operations if op["runway"] in flow]
                 if matches:
-                    # Score: prioritize more matched flights, then minimal cross-track offset
                     score = (100 - len(matches) * 50) + sum(m["cross_track_m"] for m in matches) / len(matches)
                     if score < best_score:
                         best_score = score
                         best_matches = matches
             active_operations = best_matches if best_matches else [active_operations[0]]
 
-        self.state.update(len(aircraft_list), active_operations, source_label)
+        # 6. Update Runway Operational Role Tracking (Arrivals vs Departures)
+        for op in active_operations:
+            rw = op.get("runway")
+            act = op.get("action")
+            flow_grp = FLOW_GROUP_MAP.get(rw)
+
+            # Check for airport flow reversal (e.g. NW 30s -> SE 12s)
+            if flow_grp and self.active_flow_group and flow_grp != self.active_flow_group:
+                self.last_landing_runway = None
+                self.last_departure_runway = None
+
+            if flow_grp:
+                self.active_flow_group = flow_grp
+
+            if act == "LANDING":
+                self.last_landing_runway = rw
+            elif act == "TAKEOFF":
+                self.last_departure_runway = rw
+
+        # Format descriptive role string for display and clients
+        if self.last_landing_runway and self.last_departure_runway:
+            summary = f"ARR {self.last_landing_runway} / DEP {self.last_departure_runway}"
+            full_summary = f"LANDING {self.last_landing_runway} / DEPARTURES {self.last_departure_runway}"
+        elif self.last_landing_runway:
+            summary = f"LANDING: {self.last_landing_runway}"
+            full_summary = f"LANDING {self.last_landing_runway} (No Dep Active)"
+        elif self.last_departure_runway:
+            summary = f"DEPARTURES: {self.last_departure_runway}"
+            full_summary = f"DEPARTURES {self.last_departure_runway} (No Arr Active)"
+        else:
+            summary = "RW: Standby"
+            full_summary = "Standby / Waiting for Traffic"
+
+        runway_roles = {
+            "landing": self.last_landing_runway,
+            "departure": self.last_departure_runway,
+            "summary": summary,
+            "full_summary": full_summary
+        }
+
+        # 7. Ingest live KMSP METAR surface weather
+        current_weather = get_current_weather()
+
+        self.state.update(len(aircraft_list), active_operations, source_label, current_weather, runway_roles)

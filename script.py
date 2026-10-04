@@ -19,10 +19,45 @@ import requests
 import time
 import json
 import os
+import sys
 import urllib3
 
 # Suppress SSL certificate warnings when querying endpoints with verify=False
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Ensure UTF-8 console output on Windows
+if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
+# Dynamic path resolution to import rpi modules if needed
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
+
+try:
+    from rpi.weather import get_current_weather
+except ImportError:
+    get_current_weather = lambda: {
+        "flight_category": "VFR",
+        "temp_f": 60,
+        "wind": "Calm",
+        "pressure": "30.00 inHg",
+        "condition": "Clear"
+    }
+
+LAST_LANDING_RUNWAY = None
+LAST_DEPARTURE_RUNWAY = None
+ACTIVE_FLOW_GROUP = None
+
+FLOW_GROUP_MAP = {
+    "30R": "30", "30L": "30",
+    "12L": "12", "12R": "12",
+    "4": "4", "22": "22",
+    "17": "17", "35": "35"
+}
 
 # ==============================================================================
 # CONFIGURATION & THRESHOLDS
@@ -301,25 +336,74 @@ def get_active_runway(lat, lon, heading):
                     return rw_name
     return None
 
-def write_state(runway, action, callsign, aircraft_type, route):
-    """
-    Persists current runway telemetry event to local JSON file for downstream consumers
-    (e.g., ESP32 LED matrix screens, Home Assistant sensors, or status web pages).
+def get_runway_roles():
+    global LAST_LANDING_RUNWAY, LAST_DEPARTURE_RUNWAY
+    if LAST_LANDING_RUNWAY and LAST_DEPARTURE_RUNWAY:
+        summary = f"ARR {LAST_LANDING_RUNWAY} / DEP {LAST_DEPARTURE_RUNWAY}"
+        full_summary = f"LANDING {LAST_LANDING_RUNWAY} / DEPARTURES {LAST_DEPARTURE_RUNWAY}"
+    elif LAST_LANDING_RUNWAY:
+        summary = f"LANDING: {LAST_LANDING_RUNWAY}"
+        full_summary = f"LANDING {LAST_LANDING_RUNWAY} (No Dep Active)"
+    elif LAST_DEPARTURE_RUNWAY:
+        summary = f"DEPARTURES: {LAST_DEPARTURE_RUNWAY}"
+        full_summary = f"DEPARTURES {LAST_DEPARTURE_RUNWAY} (No Arr Active)"
+    else:
+        summary = "RW: Standby"
+        full_summary = "Standby / Waiting for Traffic"
+    return {
+        "landing": LAST_LANDING_RUNWAY,
+        "departure": LAST_DEPARTURE_RUNWAY,
+        "summary": summary,
+        "full_summary": full_summary
+    }
 
-    Args:
-        runway (str): Active runway name (e.g., '30L') or 'NONE'.
-        action (str): Movement type ('LANDING', 'TAKING OFF', or 'IDLE').
-        callsign (str): Full flight label (e.g., 'Delta Air Lines 793').
-        aircraft_type (str): Decoded airframe name or 'NONE'.
-        route (str): Flight route string or 'NONE'.
+def write_state(runway, action, callsign, aircraft_type, route, tracked_count=0):
     """
+    Persists current runway telemetry event, runway roles, and live METAR weather
+    to local JSON file for downstream consumers (ESP32 LED displays, dashboards).
+    """
+    global LAST_LANDING_RUNWAY, LAST_DEPARTURE_RUNWAY, ACTIVE_FLOW_GROUP
+
+    # Update runway operational role tracking
+    if runway != "NONE":
+        flow_grp = FLOW_GROUP_MAP.get(runway)
+        if flow_grp and ACTIVE_FLOW_GROUP and flow_grp != ACTIVE_FLOW_GROUP:
+            LAST_LANDING_RUNWAY = None
+            LAST_DEPARTURE_RUNWAY = None
+        if flow_grp:
+            ACTIVE_FLOW_GROUP = flow_grp
+
+        if action == "LANDING":
+            LAST_LANDING_RUNWAY = runway
+        elif action in ("TAKING OFF", "TAKEOFF"):
+            LAST_DEPARTURE_RUNWAY = runway
+
+    roles = get_runway_roles()
+    weather = get_current_weather()
+
+    active_ops = []
+    if runway != "NONE" and action != "IDLE":
+        active_ops.append({
+            "runway": runway,
+            "action": "TAKEOFF" if "TAKING" in action else action,
+            "callsign": callsign,
+            "flight_label": callsign,
+            "aircraft_type": aircraft_type,
+            "route": route
+        })
+
     payload = {
         "active_runway": runway,
         "action": action,
         "callsign": callsign,
         "aircraft_type": aircraft_type,
         "route": route,
-        "timestamp": int(time.time())
+        "timestamp": int(time.time()),
+        "tracked_count": tracked_count,
+        "active_operations": active_ops,
+        "weather": weather,
+        "runway_roles": roles,
+        "runway_roles_summary": roles["summary"]
     }
     with open(STATE_FILE, "w") as f:
         json.dump(payload, f, indent=2)
@@ -411,12 +495,12 @@ def fetch_msp_traffic():
         print(f"  ✈  MATCH! [{readable_ac_type}] {flight_str} {route_display} | "
               f"{action} on {assigned_runway} | Spd: {speed_kts}kts, Alt: {alt_ft}ft")
         
-        write_state(assigned_runway, action, flight_str, readable_ac_type, flight_route)
+        write_state(assigned_runway, action, flight_str, readable_ac_type, flight_route, tracked_count=len(states))
 
     # When no active takeoffs/landings are matched, reset state to idle
     if active_events == 0:
         print("  -> No active operations detected right now.")
-        write_state("NONE", "IDLE", "", "NONE", "NONE")
+        write_state("NONE", "IDLE", "", "NONE", "NONE", tracked_count=len(states))
 
 if __name__ == "__main__":
     print("Starting MSP Runway Tracker. Press Ctrl+C to stop.")

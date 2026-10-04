@@ -45,12 +45,23 @@ The 84 WS2812B LEDs are daisy-chained (`U2` &rarr; `U85`). The hardware layout i
 ## OLED Display Geometry (UCTRONICS 0.96" Dual-Color SSD1306)
 
 The firmware is custom-tailored for the **UCTRONICS 0.96" 128x64 Dual-Color Yellow/Blue OLED** (`SDA: GPIO1`, `SCL: GPIO2`):
-* **Rows 0 – 15 (Yellow Zone):** Reserved for the airport header, active runway designation (`RWY 30L`), operation badge (`LANDING` / `TAKEOFF`), and multi-flight cycle indicator (`[1/2]`).
-* **Rows 16 – 63 (Blue Zone):** Formatted for clean flight telemetry:
+
+### Active Flight Operation Mode:
+* **Rows 0 – 15 (Yellow Zone):** Active runway designation (`RWY 30L`), operation badge (`LANDING` / `TAKEOFF`), and multi-flight cycle indicator (`[1/2]`).
+* **Rows 16 – 63 (Blue Zone):** Flight telemetry details:
   - **Row 16:** Callsign & Airline (e.g., `Delta Air Lines 793` or `SkyWest 3822`)
   - **Row 28:** Airframe Model (e.g., `Boeing 737-900` or `Airbus A321neo`)
   - **Row 40:** Route / Origin / Destination (e.g., `From KDEN` or `To KORD`)
-  - **Row 54:** Connection & Update Status Footer
+  - **Row 54:** Status footer & tracked airspace counter
+
+### Idle Runway Mode (Live Surface Weather & Runway Roles):
+When no aircraft are in the active touchdown or departure corridors:
+* **Rows 0 – 15 (Yellow Zone):** Airport banner (`KMSP AIRPORT`) with live flight condition category (`[VFR]`, `[MVFR]`, `[IFR]`, or `[LIFR]`).
+* **Rows 16 – 63 (Blue Zone):**
+  - **Row 18:** Runway Roles based on recent movements (e.g. `ARR 30R / DEP 30L` or `LANDING: 30R`)
+  - **Row 29:** Wind & Temperature (e.g. `Wind 270@11kt  59F`)
+  - **Row 40:** Barometric Altimeter & Precipitation/Sky (e.g. `Baro 30.06" Broken` or `Baro 30.06" Rain`)
+  - **Row 54:** Airspace traffic count & telemetry health
 
 ---
 

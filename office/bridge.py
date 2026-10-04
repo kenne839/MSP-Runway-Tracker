@@ -224,11 +224,25 @@ class OfficeBridge:
                 }
             },
             {
-                "label": "Test 4: Idle with Yellow Heartbeat Strobe",
+                "label": "Test 4: Idle Mode with Runway Roles & Live METAR Weather",
                 "payload": {
                     "active_operations": [],
                     "tracked_count": 10,
-                    "runway_summary": {}
+                    "runway_summary": {},
+                    "weather": {
+                        "flight_category": "VFR",
+                        "temp_f": 59,
+                        "wind": "270@11kt",
+                        "pressure": "30.06 inHg",
+                        "condition": "Broken"
+                    },
+                    "runway_roles": {
+                        "landing": "30R",
+                        "departure": "30L",
+                        "summary": "ARR 30R / DEP 30L",
+                        "full_summary": "LANDING 30R / DEPARTURES 30L"
+                    },
+                    "runway_roles_summary": "ARR 30R / DEP 30L"
                 }
             }
         ]
@@ -269,9 +283,12 @@ class OfficeBridge:
                 # Print console summary
                 ops = state_dict.get("active_operations", [])
                 tracked = state_dict.get("tracked_count", 0)
+                roles = state_dict.get("runway_roles_summary", "Standby")
+                weather = state_dict.get("weather", {})
+                wx_str = f"{weather.get('flight_category', 'VFR')} {weather.get('temp_f', '')}F {weather.get('wind', '')}"
                 now_str = time.strftime("%H:%M:%S")
 
-                print(f"[{now_str}] 📡 Airspace: {tracked} aircraft | Active Operations: {len(ops)}")
+                print(f"[{now_str}] 📡 Airspace: {tracked} aircraft | Roles: {roles} | Wx: {wx_str} | Active Ops: {len(ops)}")
                 for op in ops:
                     print(f"  ✈ {op['action']} on RW {op['runway']} | {op.get('flight_label', op['callsign'])} ({op.get('aircraft_type', 'N/A')})")
 
