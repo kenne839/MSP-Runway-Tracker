@@ -65,6 +65,36 @@ class TestRouteResolution(unittest.TestCase):
         r = get_flight_route("DAL900", "TAKING OFF")
         self.assertEqual(r, "To LGA")
 
+    def test_ttl_stale_revalidation(self):
+        """Verify entries older than 14 days are revalidated and updated."""
+        import time
+        # Simulate a 30-day old flight
+        stale_cs = "DAL900"
+        self.resolver.routes_db[stale_cs]["updated"] = int(time.time() - 30 * 86400)
+        # Clear session formatted cache
+        self.resolver.route_cache.pop(f"{stale_cs}:TAKING OFF", None)
+
+        res = self.resolver.resolve_route(stale_cs, "TAKING OFF")
+        self.assertEqual(res, "To LGA")
+        # Timestamp should now be freshly updated (< 10 seconds old)
+        new_age = time.time() - self.resolver.routes_db[stale_cs]["updated"]
+        self.assertLess(new_age, 10, "Timestamp should have refreshed upon revalidation")
+
+    def test_ttl_stale_fallback_when_offline(self):
+        """Verify stale entry is preserved if network lookup fails (no downgrade to 'Unknown')."""
+        fake_cs = "STALE999"
+        self.resolver.routes_db[fake_cs] = {
+            "origin": "MSP",
+            "destination": "FAR",
+            "airline": "Test Airlines",
+            "updated": 0  # Ancient timestamp
+        }
+        self.resolver.route_cache.pop(f"{fake_cs}:TAKING OFF", None)
+
+        # Network will 404 on STALE999, but stale fallback should return "To FAR"
+        res = self.resolver.resolve_route(fake_cs, "TAKING OFF")
+        self.assertEqual(res, "To FAR", "Should gracefully retain stale route if network fails")
+
 
 if __name__ == "__main__":
     unittest.main()

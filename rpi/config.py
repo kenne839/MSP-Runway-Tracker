@@ -95,6 +95,8 @@ OPENSKY_POLL_INTERVAL = float(os.environ.get("MSP_POLL_INTERVAL", "10.0")) # sec
 
 # ADS-B DB Routes Configuration (David Taylor / Planebase flight routes)
 ADSDB_ROUTES_URL = "https://api.adsbdb.com/v0/callsign"
+ROUTE_CACHE_TTL_DAYS = int(os.environ.get("MSP_ROUTE_CACHE_TTL_DAYS", "14"))
+ROUTE_CACHE_TTL_SEC = ROUTE_CACHE_TTL_DAYS * 86400  # 14 days = 1,209,600s
 
 # Local ADS-B Feeder (dump1090 / readsb / tar1090) configuration
 DUMP1090_URL = os.environ.get("MSP_DUMP1090_URL", "http://localhost:8080/data/aircraft.json")

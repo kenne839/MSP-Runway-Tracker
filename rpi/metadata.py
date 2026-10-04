@@ -13,7 +13,8 @@ from .config import (
     AIRCRAFT_DB_FILE,
     ROUTES_CACHE_FILE,
     OPENSKY_ROUTES_URL,
-    ADSDB_ROUTES_URL
+    ADSDB_ROUTES_URL,
+    ROUTE_CACHE_TTL_SEC
 )
 
 class MetadataResolver:
@@ -127,12 +128,13 @@ class MetadataResolver:
 
     def resolve_route(self, callsign: str, action: str) -> str:
         """
-        Multi-tier route resolver:
+        Multi-tier route resolver with Stale-While-Revalidate TTL (14-day expiry):
         1. In-memory session cache (0ms)
-        2. Persistent on-disk routes DB (msp_routes_cache.json) (0ms)
-        3. ADS-B DB API (adsbdb.com) (high coverage for US domestic & regionals) (~150ms)
+        2. Persistent on-disk routes DB (msp_routes_cache.json) (0ms if fresh < 14 days)
+        3. ADS-B DB API (adsbdb.com) (~150ms for uncached or stale records)
         4. OpenSky Network API (/api/routes) fallback (~250ms)
-        5. In-memory negative caching to prevent network spam
+        5. Stale Fallback: If network lookup fails, retain existing cached itinerary!
+        6. In-memory negative caching to prevent network spam for truly unknown callsigns
         """
         if not callsign or callsign == "UNKNOWN":
             return "Unknown"
@@ -142,26 +144,31 @@ class MetadataResolver:
         if cache_key in self.route_cache:
             return self.route_cache[cache_key]
 
+        now = time.time()
+        cached_entry = self.routes_db.get(callsign)
+
         # 1. Check persistent on-disk routes database
-        if callsign in self.routes_db:
-            entry = self.routes_db[callsign]
-            if isinstance(entry, dict):
-                origin = entry.get("origin") or entry.get("origin_icao") or ""
-                dest = entry.get("destination") or entry.get("dest_icao") or ""
-                if origin and dest:
+        if cached_entry:
+            if isinstance(cached_entry, dict):
+                origin = cached_entry.get("origin") or cached_entry.get("origin_icao") or ""
+                dest = cached_entry.get("destination") or cached_entry.get("dest_icao") or ""
+                last_updated = cached_entry.get("updated", 0)
+                age = now - last_updated
+
+                if origin and dest and age < ROUTE_CACHE_TTL_SEC:
                     formatted = self._format_route_string(origin, dest, action)
                     self.route_cache[cache_key] = formatted
                     return formatted
-            elif isinstance(entry, str) and entry and entry != "Unknown":
-                if " -> " in entry:
-                    parts = entry.split(" -> ")
+            elif isinstance(cached_entry, str) and cached_entry and cached_entry != "Unknown":
+                if " -> " in cached_entry:
+                    parts = cached_entry.split(" -> ")
                     formatted = self._format_route_string(parts[0], parts[1], action)
                     self.route_cache[cache_key] = formatted
                     return formatted
-                self.route_cache[cache_key] = entry
-                return entry
+                self.route_cache[cache_key] = cached_entry
+                return cached_entry
 
-        # 2. Query adsbdb.com API (free, open, no-key, covers domestic + regional carriers)
+        # 2. Query adsbdb.com API (uncached or stale revalidation)
         try:
             url = f"{ADSDB_ROUTES_URL}/{callsign}"
             res = requests.get(url, headers={"User-Agent": "MSP-Runway-Tracker/1.0"}, timeout=3)
@@ -175,7 +182,8 @@ class MetadataResolver:
                         self.routes_db[callsign] = {
                             "origin": orig_iata,
                             "destination": dest_iata,
-                            "airline": fr.get("airline", {}).get("name", "")
+                            "airline": fr.get("airline", {}).get("name", ""),
+                            "updated": int(now)
                         }
                         self._routes_db_modified = True
                         self._maybe_save_db()
@@ -196,7 +204,8 @@ class MetadataResolver:
                     origin, dest = route[0], route[1]
                     self.routes_db[callsign] = {
                         "origin": origin,
-                        "destination": dest
+                        "destination": dest,
+                        "updated": int(now)
                     }
                     self._routes_db_modified = True
                     self._maybe_save_db()
@@ -206,7 +215,18 @@ class MetadataResolver:
         except Exception:
             pass
 
-        # 4. Negative caching in memory only (do not persist "Unknown" to disk)
+        # 4. Graceful Stale Fallback: If network query failed but we have a stale entry, keep using it!
+        if cached_entry and isinstance(cached_entry, dict):
+            origin = cached_entry.get("origin") or cached_entry.get("origin_icao") or ""
+            dest = cached_entry.get("destination") or cached_entry.get("dest_icao") or ""
+            if origin and dest:
+                # Extend the update timestamp slightly (1 day) so we don't spam the network during an outage
+                cached_entry["updated"] = int(now - ROUTE_CACHE_TTL_SEC + 86400)
+                formatted = self._format_route_string(origin, dest, action)
+                self.route_cache[cache_key] = formatted
+                return formatted
+
+        # 5. Negative caching in memory only (do not persist "Unknown" to disk)
         self.route_cache[cache_key] = "Unknown"
         return "Unknown"
 

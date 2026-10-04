@@ -138,6 +138,8 @@ else:
 
 # In-memory session cache for daily flight routes (maps callsign:action -> formatted route string).
 ROUTE_CACHE = {}
+ROUTE_CACHE_TTL_DAYS = 14
+ROUTE_CACHE_TTL_SEC = ROUTE_CACHE_TTL_DAYS * 86400  # 14 days = 1,209,600s
 
 # ==============================================================================
 # COORDINATE PROJECTION & RUNWAY GEOMETRY
@@ -265,11 +267,12 @@ def format_route_string(origin, dest, action):
 
 def get_flight_route(callsign, action):
     """
-    Fetches flight route using multi-tier resolution:
+    Fetches flight route using multi-tier resolution with Stale-While-Revalidate TTL (14 days):
     1. In-memory session cache (0ms)
-    2. Persistent on-disk routes DB (msp_routes_cache.json) (0ms)
-    3. ADS-B DB API (adsbdb.com) (high coverage for US domestic & regionals) (~150ms)
+    2. Persistent on-disk routes DB (msp_routes_cache.json) (0ms if fresh < 14 days)
+    3. ADS-B DB API (adsbdb.com) (~150ms for uncached or stale records)
     4. OpenSky Network API (/api/routes) fallback (~250ms)
+    5. Stale Fallback: If network lookup fails, retains existing cached itinerary!
     """
     if not callsign or callsign == "UNKNOWN":
         return "Unknown"
@@ -280,26 +283,31 @@ def get_flight_route(callsign, action):
     if cache_key in ROUTE_CACHE:
         return ROUTE_CACHE[cache_key]
 
+    now = time.time()
+    cached_entry = ROUTES_DB.get(callsign)
+
     # 1. Check persistent on-disk routes database
-    if callsign in ROUTES_DB:
-        entry = ROUTES_DB[callsign]
-        if isinstance(entry, dict):
-            origin = entry.get("origin") or entry.get("origin_icao") or ""
-            dest = entry.get("destination") or entry.get("dest_icao") or ""
-            if origin and dest:
+    if cached_entry:
+        if isinstance(cached_entry, dict):
+            origin = cached_entry.get("origin") or cached_entry.get("origin_icao") or ""
+            dest = cached_entry.get("destination") or cached_entry.get("dest_icao") or ""
+            last_updated = cached_entry.get("updated", 0)
+            age = now - last_updated
+
+            if origin and dest and age < ROUTE_CACHE_TTL_SEC:
                 formatted = format_route_string(origin, dest, action)
                 ROUTE_CACHE[cache_key] = formatted
                 return formatted
-        elif isinstance(entry, str) and entry and entry != "Unknown":
-            if " -> " in entry:
-                parts = entry.split(" -> ")
+        elif isinstance(cached_entry, str) and cached_entry and cached_entry != "Unknown":
+            if " -> " in cached_entry:
+                parts = cached_entry.split(" -> ")
                 formatted = format_route_string(parts[0], parts[1], action)
                 ROUTE_CACHE[cache_key] = formatted
                 return formatted
-            ROUTE_CACHE[cache_key] = entry
-            return entry
+            ROUTE_CACHE[cache_key] = cached_entry
+            return cached_entry
 
-    # 2. Query adsbdb.com API (free, open, no-key, covers domestic + regional carriers)
+    # 2. Query adsbdb.com API (uncached or stale revalidation)
     try:
         url = f"https://api.adsbdb.com/v0/callsign/{callsign}"
         res = requests.get(url, headers={"User-Agent": "MSP-Runway-Tracker/1.0"}, timeout=3)
@@ -313,7 +321,8 @@ def get_flight_route(callsign, action):
                     ROUTES_DB[callsign] = {
                         "origin": orig_iata,
                         "destination": dest_iata,
-                        "airline": fr.get("airline", {}).get("name", "")
+                        "airline": fr.get("airline", {}).get("name", ""),
+                        "updated": int(now)
                     }
                     try:
                         with open(ROUTES_CACHE_FILE, "w", encoding="utf-8") as f:
@@ -337,7 +346,8 @@ def get_flight_route(callsign, action):
                 origin, dest = route[0], route[1]
                 ROUTES_DB[callsign] = {
                     "origin": origin,
-                    "destination": dest
+                    "destination": dest,
+                    "updated": int(now)
                 }
                 try:
                     with open(ROUTES_CACHE_FILE, "w", encoding="utf-8") as f:
@@ -349,6 +359,16 @@ def get_flight_route(callsign, action):
                 return formatted
     except Exception:
         pass
+
+    # 4. Graceful Stale Fallback: If network query failed but we have a stale entry, keep using it!
+    if cached_entry and isinstance(cached_entry, dict):
+        origin = cached_entry.get("origin") or cached_entry.get("origin_icao") or ""
+        dest = cached_entry.get("destination") or cached_entry.get("dest_icao") or ""
+        if origin and dest:
+            cached_entry["updated"] = int(now - ROUTE_CACHE_TTL_SEC + 86400)
+            formatted = format_route_string(origin, dest, action)
+            ROUTE_CACHE[cache_key] = formatted
+            return formatted
 
     ROUTE_CACHE[cache_key] = "Unknown"
     return "Unknown"
