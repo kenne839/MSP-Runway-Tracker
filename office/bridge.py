@@ -93,7 +93,7 @@ class OfficeBridge:
         print("[\033[94mCLEANUP\033[0m] Saving metadata caches and closing link...")
         try:
             if hasattr(self.tracker, "meta"):
-                self.tracker.meta._maybe_save_db(force=True)
+                self.tracker.meta.flush_caches()
         except Exception:
             pass
 
@@ -453,9 +453,12 @@ class OfficeBridge:
                 wx_str = f"{weather.get('flight_category', 'VFR')} {weather.get('temp_f', '')}F {weather.get('wind', '')}"
                 now_str = time.strftime("%H:%M:%S")
 
-                print(f"[{now_str}] 📡 Airspace: {tracked} aircraft | Roles: {roles} | Wx: {wx_str} | Active Ops: {len(ops)}")
-                for op in ops:
-                    print(f"  ✈ {op['action']} on RW {op['runway']} | {op.get('flight_label', op['callsign'])} ({op.get('aircraft_type', 'N/A')})")
+                if not getattr(self.tracker, "last_fetch_success", True):
+                    print(f"[{now_str}] ⚠️ Internet connection lost | Board in Standby | Roles: {roles} | Wx: {wx_str}")
+                else:
+                    print(f"[{now_str}] 📡 Airspace: {tracked} aircraft | Roles: {roles} | Wx: {wx_str} | Active Ops: {len(ops)}")
+                    for op in ops:
+                        print(f"  ✈ {op['action']} on RW {op['runway']} | {op.get('flight_label', op['callsign'])} ({op.get('aircraft_type', 'N/A')})")
 
                 # 4. Transmit to ESP32
                 success = await self.transmit_payload(state_dict)

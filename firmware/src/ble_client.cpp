@@ -156,6 +156,9 @@ static bool processPayloadJson(const String& json_str, DisplayTelemetryData& out
 
     getRecentlyActiveRunwaysStr(out_telemetry.active_runways_summary, sizeof(out_telemetry.active_runways_summary));
 
+    out_telemetry.link_online = true;
+    out_telemetry.last_rx_millis = millis();
+
     return true;
 }
 

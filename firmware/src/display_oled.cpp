@@ -181,11 +181,35 @@ void renderDisplayLoop() {
         // =====================================================================
         // OFFLINE DIAGNOSTIC SCREEN: Telemetry connection lost or Pi unreachable
         // =====================================================================
-#if !defined(BOARD_MODE_BLE)
-        bool wifi_down = (WiFi.status() != WL_CONNECTED);
+#if defined(BOARD_MODE_BLE)
+        // TOP YELLOW ZONE (Rows y = 0 to 15)
+        display.setTextSize(1);
+        display.setTextColor(SSD1306_WHITE);
+        display.setCursor(4, 3);
+        display.print(F("KMSP AIRPORT"));
+        display.setCursor(72, 3);
+        display.print(F("[STANDBY]"));
+        display.drawFastHLine(0, 15, SCREEN_WIDTH, SSD1306_WHITE);
+
+        // BOTTOM BLUE ZONE (Rows y = 16 to 63)
+        display.setCursor(0, 18);
+        display.println(F("Office PC Standby"));
+
+        display.setCursor(0, 29);
+        display.print(F("BLE: "));
+        display.println(BLE_DEVICE_NAME);
+
+        display.setCursor(0, 40);
+        display.println(F("Waiting for link..."));
+
+        display.drawFastHLine(0, 51, SCREEN_WIDTH, SSD1306_WHITE);
+
+        display.setCursor(0, 54);
+        display.print(F("Link lost "));
+        display.print((now - last_telemetry_rx_time) / 1000);
+        display.println(F("s ago"));
 #else
-        bool wifi_down = false;
-#endif
+        bool wifi_down = (WiFi.status() != WL_CONNECTED);
 
         // TOP YELLOW ZONE (Rows y = 0 to 15)
         display.setTextSize(1);
@@ -225,6 +249,7 @@ void renderDisplayLoop() {
         display.print(F("Link lost "));
         display.print((now - last_telemetry_rx_time) / 1000);
         display.println(F("s ago"));
+#endif
     } else {
         // =====================================================================
         // IDLE SCREEN: Showing active runway roles & live KMSP METAR weather

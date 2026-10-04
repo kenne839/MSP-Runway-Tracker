@@ -197,8 +197,8 @@ class TelemetryTracker:
                 print(f"[Tracker Error] Unhandled exception in poll loop: {e}")
                 time.sleep(5.0)
 
-    def fetch_opensky(self) -> tuple[list[dict], bool]:
-        """Polls OpenSky directly and returns (parsed_aircraft, success_bool)."""
+    def fetch_opensky(self) -> list[dict]:
+        """Polls OpenSky directly and returns parsed aircraft state vectors."""
         auth = (OPENSKY_USERNAME, OPENSKY_PASSWORD) if OPENSKY_USERNAME and OPENSKY_PASSWORD else None
         try:
             res = requests.get(OPENSKY_URL, params=MSP_BBOX, auth=auth, timeout=8, verify=False)
@@ -222,23 +222,25 @@ class TelemetryTracker:
                 print(f"[{time.strftime('%X')}] Internet connectivity restored. Resumed OpenSky live telemetry.")
 
             self.internet_online = True
+            self.last_fetch_success = True
             self.last_successful_poll_ts = int(time.time())
             self.consecutive_failures = 0
             self.current_poll_interval = OPENSKY_POLL_INTERVAL
-            return parsed, True
+            return parsed
         except Exception as e:
             self.consecutive_failures += 1
+            self.last_fetch_success = False
             if self.internet_online:
                 print(f"[{time.strftime('%X')}] Internet connection lost ({e}). Entering backoff retry mode...")
                 self.internet_online = False
 
             # Exponential backoff capped at 60 seconds to avoid hammering network or syslog
             self.current_poll_interval = min(60.0, OPENSKY_POLL_INTERVAL * (1.5 ** min(self.consecutive_failures, 4)))
-            return [], False
+            return []
 
     def _poll_opensky(self):
-        parsed_aircraft, success = self.fetch_opensky()
-        if success:
+        parsed_aircraft = self.fetch_opensky()
+        if self.last_fetch_success:
             self._process_aircraft_list(parsed_aircraft, "OpenSky")
         else:
             # Preserve last known valid weather and runway roles during brief drops
