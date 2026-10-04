@@ -1,0 +1,10 @@
+[Unit]
+Description=Run MSP Wi-Fi Watchdog every 3 minutes
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=3min
+Unit=msp-wifi-watchdog.service
+
+[Install]
+WantedBy=timers.target

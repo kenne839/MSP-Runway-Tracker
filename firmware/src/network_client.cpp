@@ -7,12 +7,18 @@
 static HTTPClient http;
 static WiFiClient client;
 static uint32_t last_poll_time = 0;
+static uint32_t current_poll_interval = TELEMETRY_POLL_MS;
+static uint8_t consecutive_http_errors = 0;
 
 void initNetwork() {
     Serial.print(F("[WiFi] Connecting to SSID: "));
     Serial.println(WIFI_SSID);
 
     WiFi.mode(WIFI_STA);
+    WiFi.setAutoReconnect(true);
+    WiFi.persistent(true);
+    // Disable Wi-Fi modem sleep to ensure zero packet drop on 24/7 home mesh routers
+    WiFi.setSleep(false);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
     int attempts = 0;
@@ -29,41 +35,61 @@ void initNetwork() {
         showWifiStatus(true, WiFi.localIP().toString().c_str());
     } else {
         Serial.println();
-        Serial.println(F("[WiFi] Initial connection failed. Will retry in background loop."));
+        Serial.println(F("[WiFi] Initial connection failed. Will retry non-blockingly in background loop."));
         showWifiStatus(false, "");
     }
 }
 
 void checkWifiConnection() {
     if (WiFi.status() != WL_CONNECTED) {
-        Serial.println(F("[WiFi] Disconnected. Reconnecting..."));
-        WiFi.disconnect();
+        Serial.println(F("[WiFi] Link lost. Attempting non-blocking reconnect..."));
         WiFi.reconnect();
     }
 }
 
 bool pollTelemetryData(DisplayTelemetryData& out_telemetry) {
     uint32_t now = millis();
-    if (now - last_poll_time < TELEMETRY_POLL_MS) {
+    if (now - last_poll_time < current_poll_interval) {
         return false;
     }
     last_poll_time = now;
 
     if (WiFi.status() != WL_CONNECTED) {
         showConnectionStatusLed(false);
+        out_telemetry.link_online = false;
+        // Back off polling when Wi-Fi is lost so CPU stays dedicated to 30+ FPS LED animations
+        current_poll_interval = 3000;
         return false;
     }
 
     http.begin(client, PI_SERVER_URL);
-    http.setTimeout(2500);
+    // 1.2s timeout prevents long stalls on LAN, keeping LED animations smooth
+    http.setTimeout(1200);
 
     int httpCode = http.GET();
     if (httpCode != HTTP_CODE_OK) {
-        Serial.printf("[HTTP] GET failed, code: %d, error: %s\n", httpCode, http.errorToString(httpCode).c_str());
+        consecutive_http_errors++;
+        // Exponential backoff: 3s -> 6s -> 10s max when Pi is rebooting or unreachable
+        if (consecutive_http_errors >= 3) {
+            current_poll_interval = 10000;
+        } else if (consecutive_http_errors >= 1) {
+            current_poll_interval = 3500;
+        }
+
+        Serial.printf("[HTTP] GET failed (%d), error: %s (backoff %u ms)\n",
+                      httpCode, http.errorToString(httpCode).c_str(), current_poll_interval);
         http.end();
         showConnectionStatusLed(false);
+        out_telemetry.link_online = false;
         return false;
     }
+
+    // Success: restore normal 1.5s poll cadence immediately
+    consecutive_http_errors = 0;
+    current_poll_interval = TELEMETRY_POLL_MS;
+    showConnectionStatusLed(true);
+    out_telemetry.link_online = true;
+    out_telemetry.last_rx_millis = now;
 
     String payload = http.getString();
     http.end();

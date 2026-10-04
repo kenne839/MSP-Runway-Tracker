@@ -98,6 +98,37 @@ To run the daemon continuously on Raspberry Pi startup:
 
 ---
 
+## 24/7 Home Operation & MicroSD Longevity
+
+To ensure rock-solid 24/7 home operation without SD card corruption or Wi-Fi dropouts:
+
+### 1. Zero-Wear MicroSD Flash Protection
+The tracker implements multiple layers of flash memory write mitigation:
+- **RAM Disk State Snapshots:** Real-time state (`/dev/shm/msp_runway_state.json`) is written to Linux shared memory RAM disk rather than flash NAND.
+- **In-Memory Transponder Negative Caching:** Unknown aircraft hex codes are cached in RAM (`unknown_hex_cache`), preventing frequent 17.5 MB rewrites of `msp_aircraft_db.json`.
+- **Volatile Systemd Journal (Recommended):** To eliminate continuous disk logging on the SD card, configure systemd-journald to use RAM:
+  ```bash
+  sudo sed -i 's/#Storage=auto/Storage=volatile/' /etc/systemd/journald.conf
+  sudo sed -i 's/#RuntimeMaxUse=/RuntimeMaxUse=16M/' /etc/systemd/journald.conf
+  sudo systemctl restart systemd-journald
+  ```
+
+### 2. Wi-Fi Power-Save Disable & Headless Watchdog
+Raspberry Pi onboard Broadcom Wi-Fi chips (`wlan0`) have power saving enabled by default, which can cause connection drops during idle periods. 
+To guarantee continuous network reachability:
+1. Copy the Wi-Fi watchdog script and systemd units:
+   ```bash
+   sudo cp rpi/service/wifi-watchdog.sh /usr/local/bin/msp-wifi-watchdog.sh
+   sudo chmod +x /usr/local/bin/msp-wifi-watchdog.sh
+   sudo cp rpi/service/msp-wifi-watchdog.service /etc/systemd/system/
+   sudo cp rpi/service/msp-wifi-watchdog.timer /etc/systemd/system/
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now msp-wifi-watchdog.timer
+   ```
+2. The watchdog timer checks gateway reachability every 3 minutes, automatically re-associating or cycling `wlan0` if a router channel change or DHCP lease drop occurs.
+
+---
+
 ## JSON Payload Schema (`/api/runway_state`)
 
 ```json

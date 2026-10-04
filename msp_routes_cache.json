@@ -862,5 +862,11 @@
     "destination": "MSP",
     "airline": "United Airlines",
     "updated": 1791086433
+  },
+  "SWA3175": {
+    "origin": "BNA",
+    "destination": "MSP",
+    "airline": "Southwest Airlines Co.",
+    "updated": 1791086790
   }
 }

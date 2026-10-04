@@ -25,6 +25,7 @@ class MetadataResolver:
         self.aircraft_db = self._load_json(AIRCRAFT_DB_FILE, "aircraft DB")
         self.routes_db = self._load_json(ROUTES_CACHE_FILE, "routes cache")
         self.route_cache: dict[str, str] = {}
+        self.unknown_hex_cache: set[str] = set()
         self._db_modified = False
         self._routes_db_modified = False
         self._last_db_save = time.time()
@@ -71,30 +72,40 @@ class MetadataResolver:
 
         hex_code = icao24.lower().strip()
 
-        # 1. Local O(1) Cache
+        # 1. Local O(1) Cache (480k pre-seeded records)
         if hex_code in self.aircraft_db:
             type_code = self.aircraft_db[hex_code]
             readable = self.airframes.get(type_code, type_code)
             return type_code, readable
 
-        # 2. Dynamic HexDB Fallback
+        # 2. In-memory negative hit cache (avoids repeated API spam and protects SD card)
+        if hex_code in self.unknown_hex_cache:
+            return "UNKNOWN", "UNKNOWN"
+
+        # 3. Dynamic HexDB Fallback
         type_code = "UNKNOWN"
         try:
             url = f"https://hexdb.io/api/v1/aircraft/{hex_code}"
             res = requests.get(url, timeout=3, verify=False)
             if res.status_code == 200:
                 data = res.json()
-                type_code = data.get("ICAOTypeCode") or data.get("Type") or "UNKNOWN"
+                resolved = data.get("ICAOTypeCode") or data.get("Type")
+                if resolved and resolved.strip().upper() != "UNKNOWN":
+                    type_code = resolved.strip().upper()
         except Exception:
             pass
 
-        # Negative caching prevents spamming external API on subsequent loops
-        self.aircraft_db[hex_code] = type_code
-        self._db_modified = True
-
-        readable = self.airframes.get(type_code, type_code)
-        self._maybe_save_db()
-        return type_code, readable
+        if type_code != "UNKNOWN":
+            # Genuine new aircraft discovered - persist to database
+            self.aircraft_db[hex_code] = type_code
+            self._db_modified = True
+            readable = self.airframes.get(type_code, type_code)
+            self._maybe_save_db()
+            return type_code, readable
+        else:
+            # Negative hit: cache in RAM only to prevent SD wear
+            self.unknown_hex_cache.add(hex_code)
+            return "UNKNOWN", "UNKNOWN"
 
     @staticmethod
     def _is_msp(airport: str | None) -> bool:
@@ -367,3 +378,7 @@ class MetadataResolver:
                 self._last_db_save = now
             except Exception as e:
                 print(f"Warning: Failed to save routes DB cache: {e}")
+
+    def flush_caches(self):
+        """Forces immediate disk flush of any modified caches upon clean shutdown."""
+        self._maybe_save_db(force=True)

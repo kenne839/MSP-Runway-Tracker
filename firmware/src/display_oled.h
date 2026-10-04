@@ -33,6 +33,8 @@ struct DisplayTelemetryData {
     char runway_roles_summary[32]; // e.g. "ARR 30R / DEP 30L"
     WeatherData weather;
     bool has_had_event;
+    bool link_online;
+    uint32_t last_rx_millis;
 };
 
 void initDisplay();

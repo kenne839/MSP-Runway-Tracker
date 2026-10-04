@@ -88,7 +88,7 @@ class TelemetryState:
             return json.loads(json.dumps(self._state))
 
     def update(self, tracked_count: int, active_ops: list[dict], source_name: str,
-               weather: dict = None, runway_roles: dict = None):
+               weather: dict = None, runway_roles: dict = None, network_status: dict = None):
         now_ts = int(time.time())
         now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
@@ -113,6 +113,11 @@ class TelemetryState:
             "full_summary": "Standby / Waiting for Traffic"
         }
         current_weather = weather or get_current_weather()
+        current_network = network_status or {
+            "online": True,
+            "last_successful_poll": now_ts,
+            "consecutive_failures": 0
+        }
 
         new_state = {
             "timestamp": now_ts,
@@ -126,7 +131,8 @@ class TelemetryState:
             "runway_summary": runway_summary,
             "weather": current_weather,
             "runway_roles": current_roles,
-            "runway_roles_summary": current_roles.get("summary", "RW: Standby")
+            "runway_roles_summary": current_roles.get("summary", "RW: Standby"),
+            "network": current_network
         }
 
         with self._lock:
@@ -156,6 +162,12 @@ class TelemetryTracker:
         self.last_departure_runway = None
         self.active_flow_group = None
 
+        # Network outage resilience & backoff
+        self.internet_online = True
+        self.last_successful_poll_ts = int(time.time())
+        self.consecutive_failures = 0
+        self.current_poll_interval = OPENSKY_POLL_INTERVAL
+
     def start(self):
         self.running = True
         self._thread = threading.Thread(target=self._run_loop, daemon=True, name="TelemetryWorker")
@@ -166,6 +178,11 @@ class TelemetryTracker:
         self.running = False
         if self._thread:
             self._thread.join(timeout=3.0)
+        # Flush modified caches to disk cleanly on shutdown
+        try:
+            self.meta.flush_caches()
+        except Exception:
+            pass
 
     def _run_loop(self):
         while self.running:
@@ -175,16 +192,16 @@ class TelemetryTracker:
                     time.sleep(DUMP1090_POLL_INTERVAL)
                 else:
                     self._poll_opensky()
-                    time.sleep(OPENSKY_POLL_INTERVAL)
+                    time.sleep(self.current_poll_interval)
             except Exception as e:
                 print(f"[Tracker Error] Unhandled exception in poll loop: {e}")
                 time.sleep(5.0)
 
-    def fetch_opensky(self) -> list[dict]:
-        """Polls OpenSky directly and returns parsed aircraft state vectors."""
+    def fetch_opensky(self) -> tuple[list[dict], bool]:
+        """Polls OpenSky directly and returns (parsed_aircraft, success_bool)."""
         auth = (OPENSKY_USERNAME, OPENSKY_PASSWORD) if OPENSKY_USERNAME and OPENSKY_PASSWORD else None
         try:
-            res = requests.get(OPENSKY_URL, params=MSP_BBOX, auth=auth, timeout=10, verify=False)
+            res = requests.get(OPENSKY_URL, params=MSP_BBOX, auth=auth, timeout=8, verify=False)
             res.raise_for_status()
             data = res.json()
             states = data.get("states") or []
@@ -200,14 +217,45 @@ class TelemetryTracker:
                     "heading": plane[10],
                     "vertical_rate_ms": plane[11]
                 })
-            return parsed
+
+            if not self.internet_online:
+                print(f"[{time.strftime('%X')}] Internet connectivity restored. Resumed OpenSky live telemetry.")
+
+            self.internet_online = True
+            self.last_successful_poll_ts = int(time.time())
+            self.consecutive_failures = 0
+            self.current_poll_interval = OPENSKY_POLL_INTERVAL
+            return parsed, True
         except Exception as e:
-            print(f"[{time.strftime('%X')}] OpenSky API request failed: {e}")
-            return []
+            self.consecutive_failures += 1
+            if self.internet_online:
+                print(f"[{time.strftime('%X')}] Internet connection lost ({e}). Entering backoff retry mode...")
+                self.internet_online = False
+
+            # Exponential backoff capped at 60 seconds to avoid hammering network or syslog
+            self.current_poll_interval = min(60.0, OPENSKY_POLL_INTERVAL * (1.5 ** min(self.consecutive_failures, 4)))
+            return [], False
 
     def _poll_opensky(self):
-        parsed_aircraft = self.fetch_opensky()
-        self._process_aircraft_list(parsed_aircraft, "OpenSky")
+        parsed_aircraft, success = self.fetch_opensky()
+        if success:
+            self._process_aircraft_list(parsed_aircraft, "OpenSky")
+        else:
+            # Preserve last known valid weather and runway roles during brief drops
+            prev = self.state.get_snapshot()
+            net_status = {
+                "online": False,
+                "last_successful_poll": self.last_successful_poll_ts,
+                "consecutive_failures": self.consecutive_failures
+            }
+            self.state.update(
+                tracked_count=0,
+                active_ops=[],
+                source_name="OpenSky (Offline)",
+                weather=prev.get("weather"),
+                runway_roles=prev.get("runway_roles"),
+                network_status=net_status
+            )
 
     def _poll_dump1090(self):
         """Polls a local dump1090 / readsb / tar1090 server running on the Pi."""

@@ -126,6 +126,16 @@ class TestRouteResolution(unittest.TestCase):
             self.assertEqual(orig, "MCO")
             self.assertEqual(dest, "MSP")
 
+    def test_sd_card_protection_unknown_hex_cache(self):
+        """Verify unknown hex codes are cached in RAM only and do NOT dirty the 17MB database."""
+        self.resolver._db_modified = False
+        fake_hex = "deadbeef99"
+        raw, readable = self.resolver.resolve_airframe(fake_hex)
+        self.assertEqual(raw, "UNKNOWN")
+        self.assertIn(fake_hex, self.resolver.unknown_hex_cache)
+        self.assertNotIn(fake_hex, self.resolver.aircraft_db)
+        self.assertFalse(self.resolver._db_modified, "Unknown hex must NEVER mark 17MB DB as modified!")
+
 
 if __name__ == "__main__":
     unittest.main()

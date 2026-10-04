@@ -1,5 +1,9 @@
 #include "display_oled.h"
 
+#if !defined(BOARD_MODE_BLE)
+#include <WiFi.h>
+#endif
+
 // UCTRONICS 0.96" Dual-Color OLED (128x64 SSD1306)
 // Physical Color Geometry:
 // - Top Yellow Zone: Rows y = 0 to 15 (16 pixels)
@@ -12,6 +16,8 @@ static bool display_initialized = false;
 static DisplayTelemetryData current_data;
 static uint8_t current_flight_idx = 0;
 static uint32_t last_cycle_time = 0;
+static uint32_t last_telemetry_rx_time = 0;
+static bool has_received_initial_data = false;
 
 void initDisplay() {
     Wire.begin(PIN_OLED_SDA, PIN_OLED_SCL);
@@ -88,6 +94,8 @@ void showWifiStatus(bool connected, const char* ip_str) {
 
 void updateTelemetryData(const DisplayTelemetryData& data) {
     current_data = data;
+    last_telemetry_rx_time = millis();
+    has_received_initial_data = true;
     if (current_flight_idx >= current_data.flight_count) {
         current_flight_idx = 0;
     }
@@ -97,6 +105,12 @@ void renderDisplayLoop() {
     if (!display_initialized) return;
 
     uint32_t now = millis();
+    bool is_stale = has_received_initial_data && (now - last_telemetry_rx_time > 15000);
+
+    if (is_stale) {
+        // Expire active flights so old landing/takeoff events are not displayed
+        current_data.flight_count = 0;
+    }
 
     // Cycle through active events every 3000 ms (3 seconds)
     if (current_data.flight_count > 1 && (now - last_cycle_time > 3000)) {
@@ -106,7 +120,7 @@ void renderDisplayLoop() {
 
     display.clearDisplay();
 
-    if (current_data.flight_count > 0) {
+    if (current_data.flight_count > 0 && !is_stale) {
         const FlightEvent& f = current_data.flights[current_flight_idx];
 
         // =====================================================================
@@ -163,6 +177,54 @@ void renderDisplayLoop() {
             display.print(current_data.tracked_count);
             display.print(F(" tracked"));
         }
+    } else if (is_stale) {
+        // =====================================================================
+        // OFFLINE DIAGNOSTIC SCREEN: Telemetry connection lost or Pi unreachable
+        // =====================================================================
+#if !defined(BOARD_MODE_BLE)
+        bool wifi_down = (WiFi.status() != WL_CONNECTED);
+#else
+        bool wifi_down = false;
+#endif
+
+        // TOP YELLOW ZONE (Rows y = 0 to 15)
+        display.setTextSize(1);
+        display.setTextColor(SSD1306_WHITE);
+        display.setCursor(4, 3);
+        display.print(F("KMSP AIRPORT"));
+        display.setCursor(74, 3);
+        if (wifi_down) {
+            display.print(F("[NO WI-FI]"));
+        } else {
+            display.print(F("[OFFLINE]"));
+        }
+        display.drawFastHLine(0, 15, SCREEN_WIDTH, SSD1306_WHITE);
+
+        // BOTTOM BLUE ZONE (Rows y = 16 to 63)
+        display.setCursor(0, 18);
+        if (wifi_down) {
+            display.println(F("Wi-Fi Disconnected"));
+        } else {
+            display.println(F("Raspberry Pi Offline"));
+        }
+
+        display.setCursor(0, 29);
+        if (wifi_down) {
+            display.print(F("SSID: "));
+            display.println(WIFI_SSID);
+        } else {
+            display.println(F("Target: Port 8080"));
+        }
+
+        display.setCursor(0, 40);
+        display.println(F("Auto-retrying link..."));
+
+        display.drawFastHLine(0, 51, SCREEN_WIDTH, SSD1306_WHITE);
+
+        display.setCursor(0, 54);
+        display.print(F("Link lost "));
+        display.print((now - last_telemetry_rx_time) / 1000);
+        display.println(F("s ago"));
     } else {
         // =====================================================================
         // IDLE SCREEN: Showing active runway roles & live KMSP METAR weather
