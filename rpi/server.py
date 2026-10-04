@@ -45,6 +45,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         .status-LANDING { color: var(--accent-green); }
         .status-TAKEOFF { color: var(--accent-amber); }
         .status-IDLE { color: var(--text-muted); }
+        .status-CLOSED { color: #f87171; text-decoration: line-through; }
         table { width: 100%; border-collapse: collapse; background: var(--card-bg); border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
         th, td { padding: 12px 16px; text-align: left; font-size: 0.9rem; }
         th { background: #1a243c; color: var(--text-muted); text-transform: uppercase; font-size: 0.75rem; }
@@ -59,7 +60,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             <h1>MSP Runway Live Telemetry</h1>
             <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 4px;">Hardware Telemetry Server &bull; ESP32-S3 Display Hub</p>
         </div>
-        <div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+            <span id="atisBadge" class="badge" style="background: #1e293b; color: #38bdf8; display: none;">ATIS --</span>
             <span id="liveBadge" class="badge">LIVE</span>
         </div>
     </div>
@@ -138,14 +140,31 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                     document.getElementById('weatherDetails').innerText = `Baro: ${w.pressure} | Sky: ${w.condition}`;
                 }
 
+                // ATIS Advisory Badge
+                const atisCode = data.runway_roles && data.runway_roles.atis_code;
+                const atisEl = document.getElementById('atisBadge');
+                if (atisCode) {
+                    atisEl.innerText = `ATIS ${atisCode}`;
+                    atisEl.style.display = 'inline-block';
+                } else {
+                    atisEl.style.display = 'none';
+                }
+
                 // Render Runways
+                const closedList = (data.runway_roles && data.runway_roles.closed_runways) || [];
                 const rwContainer = document.getElementById('runwayGrid');
                 let rwHtml = '';
                 for (const [rw, info] of Object.entries(data.runway_summary || {})) {
+                    let statusLabel = info.status;
+                    let statusClass = `status-${info.status}`;
+                    if (closedList.includes(rw) && info.status === 'IDLE') {
+                        statusLabel = 'CLOSED (NOTAM)';
+                        statusClass = 'status-CLOSED';
+                    }
                     rwHtml += `
                         <div class="rw-box">
                             <div class="rw-name">${rw}</div>
-                            <div class="rw-status status-${info.status}">${info.status}</div>
+                            <div class="rw-status ${statusClass}">${statusLabel}</div>
                             ${info.callsign ? `<div style="font-size: 0.75rem; color: #cbd5e1; margin-top: 2px;">${info.callsign}</div>` : ''}
                         </div>
                     `;

@@ -29,6 +29,7 @@ from .config import (
 from .spatial import get_runway_match
 from .metadata import MetadataResolver
 from .weather import get_current_weather
+from .atis import get_current_datis
 
 import sys
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -354,25 +355,52 @@ class TelemetryTracker:
             elif act == "TAKEOFF":
                 self.last_departure_runway = rw
 
-        # Format descriptive role string for display and clients
+        # Determine operational runway roles (Hierarchy: 1. Live ADS-B -> 2. D-ATIS Advisory Fallback -> 3. Standby)
+        datis = get_current_datis()
+        closed_runways = datis.get("closed_runways", []) if datis else []
+        atis_code = datis.get("code") if datis else None
+
         if self.last_landing_runway and self.last_departure_runway:
             summary = f"ARR {self.last_landing_runway} / DEP {self.last_departure_runway}"
             full_summary = f"LANDING {self.last_landing_runway} / DEPARTURES {self.last_departure_runway}"
+            landing_role = self.last_landing_runway
+            dep_role = self.last_departure_runway
+            source_role = "ADS-B"
         elif self.last_landing_runway:
             summary = f"LANDING: {self.last_landing_runway}"
             full_summary = f"LANDING {self.last_landing_runway} (No Dep Active)"
+            landing_role = self.last_landing_runway
+            dep_role = None
+            source_role = "ADS-B"
         elif self.last_departure_runway:
             summary = f"DEPARTURES: {self.last_departure_runway}"
             full_summary = f"DEPARTURES {self.last_departure_runway} (No Arr Active)"
+            landing_role = None
+            dep_role = self.last_departure_runway
+            source_role = "ADS-B"
+        elif datis and datis.get("valid"):
+            # ADS-B has no recent physical movements. Use D-ATIS advisory as fallback.
+            summary = datis["summary"]
+            full_summary = datis["full_summary"]
+            landing_role = datis.get("primary_arr")
+            dep_role = datis.get("primary_dep")
+            source_role = "D-ATIS"
         else:
+            # Neither ADS-B nor D-ATIS available (or D-ATIS unreachable/unparseable). Fail safe to Standby.
             summary = "RW: Standby"
             full_summary = "Standby / Waiting for Traffic"
+            landing_role = None
+            dep_role = None
+            source_role = "STANDBY"
 
         runway_roles = {
-            "landing": self.last_landing_runway,
-            "departure": self.last_departure_runway,
+            "landing": landing_role,
+            "departure": dep_role,
             "summary": summary,
-            "full_summary": full_summary
+            "full_summary": full_summary,
+            "source": source_role,
+            "closed_runways": closed_runways,
+            "atis_code": atis_code
         }
 
         # 7. Ingest live KMSP METAR surface weather

@@ -48,6 +48,11 @@ except ImportError:
         "condition": "Clear"
     }
 
+try:
+    from rpi.atis import get_current_datis
+except ImportError:
+    get_current_datis = lambda: None
+
 LAST_LANDING_RUNWAY = None
 LAST_DEPARTURE_RUNWAY = None
 ACTIVE_FLOW_GROUP = None
@@ -338,23 +343,49 @@ def get_active_runway(lat, lon, heading):
 
 def get_runway_roles():
     global LAST_LANDING_RUNWAY, LAST_DEPARTURE_RUNWAY
+    datis = get_current_datis() if callable(get_current_datis) else None
+    closed_runways = datis.get("closed_runways", []) if datis else []
+    atis_code = datis.get("code") if datis else None
+
     if LAST_LANDING_RUNWAY and LAST_DEPARTURE_RUNWAY:
         summary = f"ARR {LAST_LANDING_RUNWAY} / DEP {LAST_DEPARTURE_RUNWAY}"
         full_summary = f"LANDING {LAST_LANDING_RUNWAY} / DEPARTURES {LAST_DEPARTURE_RUNWAY}"
+        landing_role = LAST_LANDING_RUNWAY
+        dep_role = LAST_DEPARTURE_RUNWAY
+        source_role = "ADS-B"
     elif LAST_LANDING_RUNWAY:
         summary = f"LANDING: {LAST_LANDING_RUNWAY}"
         full_summary = f"LANDING {LAST_LANDING_RUNWAY} (No Dep Active)"
+        landing_role = LAST_LANDING_RUNWAY
+        dep_role = None
+        source_role = "ADS-B"
     elif LAST_DEPARTURE_RUNWAY:
         summary = f"DEPARTURES: {LAST_DEPARTURE_RUNWAY}"
         full_summary = f"DEPARTURES {LAST_DEPARTURE_RUNWAY} (No Arr Active)"
+        landing_role = None
+        dep_role = LAST_DEPARTURE_RUNWAY
+        source_role = "ADS-B"
+    elif datis and datis.get("valid"):
+        summary = datis["summary"]
+        full_summary = datis["full_summary"]
+        landing_role = datis.get("primary_arr")
+        dep_role = datis.get("primary_dep")
+        source_role = "D-ATIS"
     else:
         summary = "RW: Standby"
         full_summary = "Standby / Waiting for Traffic"
+        landing_role = None
+        dep_role = None
+        source_role = "STANDBY"
+
     return {
-        "landing": LAST_LANDING_RUNWAY,
-        "departure": LAST_DEPARTURE_RUNWAY,
+        "landing": landing_role,
+        "departure": dep_role,
         "summary": summary,
-        "full_summary": full_summary
+        "full_summary": full_summary,
+        "source": source_role,
+        "closed_runways": closed_runways,
+        "atis_code": atis_code
     }
 
 def write_state(runway, action, callsign, aircraft_type, route, tracked_count=0):
