@@ -1066,5 +1066,23 @@
     "destination": "LGA",
     "airline": "Endeavor Air",
     "updated": 1791085031
+  },
+  "AAL458": {
+    "origin": "MIA",
+    "destination": "MSP",
+    "airline": "American Airlines",
+    "updated": 1791085220
+  },
+  "DAL2225": {
+    "origin": "ATL",
+    "destination": "ALB",
+    "airline": "Delta Air Lines",
+    "updated": 1791085335
+  },
+  "UAL8172": {
+    "origin": "YYZ",
+    "destination": "DTW",
+    "airline": "United Airlines",
+    "updated": 1791085626
   }
 }

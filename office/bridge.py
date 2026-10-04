@@ -1,10 +1,11 @@
 """
-KMSP Runway LED Tracker - Office PC Bridge
+KMSP Runway LED Tracker - Office PC Companion & BLE Bridge
 Transmits live KMSP flight telemetry to the ESP32-S3 Office Board wirelessly over BLE
-(Bluetooth Low Energy).
+(Bluetooth Low Energy), with embedded web server, zero-touch auto-pairing, smart standby,
+and Windows startup automation.
 
 Usage:
-    python office/bridge.py          # Auto-connects via BLE
+    python office/bridge.py          # Auto-connects via BLE with embedded web dashboard
     python office/bridge.py --test   # Runs hardware test sequence via BLE
     python office/bridge.py --mode serial --port COM3  # Optional: via Header J2 UART programmer
 """
@@ -13,8 +14,12 @@ import os
 import sys
 import time
 import json
+import signal
+import atexit
 import asyncio
 import argparse
+import threading
+from http.server import ThreadingHTTPServer
 
 # Ensure project root is in sys.path
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -23,6 +28,7 @@ if PROJECT_ROOT not in sys.path:
 
 from rpi.config import MSP_BBOX, OPENSKY_URL, OPENSKY_USERNAME, OPENSKY_PASSWORD
 from rpi.tracker import TelemetryTracker
+from rpi.server import make_handler
 
 # BLE Nordic UART Service UUIDs
 BLE_DEVICE_NAME = "KMSP-Runway-Office"
@@ -30,19 +36,127 @@ NUS_SERVICE_UUID = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
 NUS_RX_UUID = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
 NUS_TX_UUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
 
+OFFICE_DIR = os.path.dirname(os.path.abspath(__file__))
+BLE_CACHE_FILE = os.path.join(OFFICE_DIR, ".ble_cache.json")
+PID_FILE = os.path.join(OFFICE_DIR, ".bridge.pid")
+
 
 class OfficeBridge:
-    def __init__(self, mode="ble", port=None, poll_interval=15.0):
+    def __init__(self, mode="ble", port=None, poll_interval=15.0, web_server=True, web_port=8080):
         self.mode = mode
         self.port = port
         self.poll_interval = poll_interval
+        self.web_server = web_server
+        self.web_port = web_port
+
         self.tracker = TelemetryTracker()
         self.ble_client = None
         self.serial_conn = None
         self.connected = False
+        self.in_standby = False
+        self.cached_ble_address = self._load_ble_cache()
+
+        self.httpd = None
+        self.http_thread = None
+
+        self._write_pid()
+        atexit.register(self.cleanup)
+
+        # Register signal handlers for clean shutdown
+        try:
+            signal.signal(signal.SIGINT, self._handle_signal)
+            signal.signal(signal.SIGTERM, self._handle_signal)
+        except Exception:
+            pass
+
+    def _write_pid(self):
+        try:
+            with open(PID_FILE, "w", encoding="utf-8") as f:
+                f.write(str(os.getpid()))
+        except Exception:
+            pass
+
+    def _remove_pid(self):
+        if os.path.exists(PID_FILE):
+            try:
+                os.remove(PID_FILE)
+            except Exception:
+                pass
+
+    def _handle_signal(self, signum, frame):
+        print("\n[\033[93mSHUTDOWN\033[0m] Received shutdown signal. Cleaning up...")
+        self.cleanup()
+        sys.exit(0)
+
+    def cleanup(self):
+        """Flushes caches to disk and closes network connections cleanly."""
+        print("[\033[94mCLEANUP\033[0m] Saving metadata caches and closing link...")
+        try:
+            if hasattr(self.tracker, "meta"):
+                self.tracker.meta._maybe_save_db(force=True)
+        except Exception:
+            pass
+
+        if self.serial_conn and self.serial_conn.is_open:
+            try:
+                self.serial_conn.close()
+            except Exception:
+                pass
+
+        if self.httpd:
+            try:
+                self.httpd.shutdown()
+                self.httpd.server_close()
+            except Exception:
+                pass
+
+        self._remove_pid()
+
+    def _load_ble_cache(self):
+        if os.path.exists(BLE_CACHE_FILE):
+            try:
+                with open(BLE_CACHE_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    return data.get("address")
+            except Exception:
+                pass
+        return None
+
+    def _save_ble_cache(self, address):
+        self.cached_ble_address = address
+        try:
+            with open(BLE_CACHE_FILE, "w", encoding="utf-8") as f:
+                json.dump({"address": address, "name": BLE_DEVICE_NAME, "updated": time.time()}, f, indent=2)
+        except Exception:
+            pass
+
+    def start_web_server(self):
+        """Starts an embedded background web server for live browser monitoring."""
+        if not self.web_server:
+            return
+
+        try:
+            handler_class = make_handler(self.tracker.state)
+            self.httpd = ThreadingHTTPServer(("127.0.0.1", self.web_port), handler_class)
+            self.http_thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+            self.http_thread.start()
+            print(f"[\033[92mWEB\033[0m] Embedded Dashboard live at http://127.0.0.1:{self.web_port}/")
+            print(f"[\033[92mWEB\033[0m] Web Simulator live at  http://127.0.0.1:{self.web_port}/simulator")
+        except OSError as e:
+            if e.errno == 10048 or "Address already in use" in str(e):
+                print(f"[\033[93mWEB NOTICE\033[0m] Port {self.web_port} in use. Web dashboard disabled (BLE bridge active).")
+            else:
+                print(f"[\033[93mWEB NOTICE\033[0m] Could not start HTTP dashboard: {e}")
+        except Exception as e:
+            print(f"[\033[93mWEB NOTICE\033[0m] Web server error: {e}")
+
+    def _on_ble_disconnect(self, client):
+        """Callback invoked by bleak when ESP32 board is powered off or drops link."""
+        print(f"[\033[93mBLE DISCONNECT\033[0m] ESP32 board turned off or disconnected.")
+        self.connected = False
 
     async def connect_ble(self):
-        """Scans for and connects to the ESP32-S3 over Bluetooth Low Energy."""
+        """Scans for and connects to the ESP32-S3 over Bluetooth Low Energy with address caching."""
         try:
             from bleak import BleakScanner, BleakClient
         except ImportError:
@@ -50,31 +164,50 @@ class OfficeBridge:
             print("Please run: pip install bleak")
             return False
 
-        print(f"[\033[94mBLE\033[0m] Scanning for '{BLE_DEVICE_NAME}'...")
-        device = await BleakScanner.find_device_by_name(BLE_DEVICE_NAME, timeout=10.0)
+        device = None
+
+        # 1. Fast-path: Try connecting directly to cached MAC address if available
+        if self.cached_ble_address:
+            try:
+                device = await BleakScanner.find_device_by_address(self.cached_ble_address, timeout=2.5)
+            except Exception:
+                device = None
+
+        # 2. Discovery fallback: Scan by device name
+        if not device:
+            print(f"[\033[94mBLE\033[0m] Scanning for '{BLE_DEVICE_NAME}'...")
+            try:
+                device = await BleakScanner.find_device_by_name(BLE_DEVICE_NAME, timeout=6.0)
+            except Exception as e:
+                print(f"[\033[93mBLE SCAN ERROR\033[0m] {e}")
+                return False
+
+        # 3. Discovery fallback 2: Search advertised local names
+        if not device:
+            try:
+                devices = await BleakScanner.discover(timeout=4.0)
+                for d in devices:
+                    if d.name and BLE_DEVICE_NAME.lower() in d.name.lower():
+                        device = d
+                        break
+            except Exception:
+                pass
 
         if not device:
-            # Fallback scan by service UUID
-            devices = await BleakScanner.discover(timeout=5.0)
-            for d in devices:
-                if d.name and BLE_DEVICE_NAME.lower() in d.name.lower():
-                    device = d
-                    break
-
-        if not device:
-            print(f"[\033[93mWARNING\033[0m] Device '{BLE_DEVICE_NAME}' not found.")
             return False
 
         print(f"[\033[92mBLE\033[0m] Found board at {device.address}. Connecting...")
-        client = BleakClient(device)
+        client = BleakClient(device, disconnected_callback=self._on_ble_disconnect)
         try:
-            await client.connect()
+            await client.connect(timeout=8.0)
             self.ble_client = client
             self.connected = True
-            print(f"[\033[92mSUCCESS\033[0m] Connected to {BLE_DEVICE_NAME} via BLE!")
+            self._save_ble_cache(device.address)
+            print(f"[\033[92mSUCCESS\033[0m] Connected to {BLE_DEVICE_NAME} ({device.address}) via BLE!")
             return True
         except Exception as e:
             print(f"[\033[91mERROR\033[0m] BLE connection failed: {e}")
+            self.connected = False
             return False
 
     def connect_serial(self):
@@ -91,7 +224,6 @@ class OfficeBridge:
         if not target_port:
             ports = list(serial.tools.list_ports.comports())
             for p in ports:
-                # Look for ESP32-S3 USB CDC or Silicon Labs / CH340 / USB Serial
                 desc = (p.description or "").lower()
                 if "esp32" in desc or "usb jtag" in desc or "usb serial" in desc or "cdc" in desc:
                     target_port = p.device
@@ -100,7 +232,6 @@ class OfficeBridge:
                 target_port = ports[0].device
 
         if not target_port:
-            print("[\033[93mWARNING\033[0m] No USB Serial port found.")
             return False
 
         print(f"[\033[94mSERIAL\033[0m] Connecting to {target_port} at 115200 baud...")
@@ -111,6 +242,7 @@ class OfficeBridge:
             return True
         except Exception as e:
             print(f"[\033[91mERROR\033[0m] Serial connection failed: {e}")
+            self.connected = False
             return False
 
     async def ensure_connection(self):
@@ -118,7 +250,6 @@ class OfficeBridge:
         if self.mode == "ble" or self.mode == "auto":
             if self.ble_client and self.ble_client.is_connected:
                 return True
-            print("[\033[94mSTATUS\033[0m] Attempting BLE connection...")
             if await self.connect_ble():
                 return True
             if self.mode == "ble":
@@ -127,7 +258,6 @@ class OfficeBridge:
         if self.mode == "serial" or self.mode == "auto":
             if self.serial_conn and self.serial_conn.is_open:
                 return True
-            print("[\033[94mSTATUS\033[0m] Attempting USB Serial connection...")
             if self.connect_serial():
                 return True
 
@@ -141,7 +271,6 @@ class OfficeBridge:
         # 1. Send via BLE
         if self.ble_client and self.ble_client.is_connected:
             try:
-                # Send with MTU chunking if needed
                 CHUNK_SIZE = 240
                 for i in range(0, len(payload_bytes), CHUNK_SIZE):
                     chunk = payload_bytes[i:i + CHUNK_SIZE]
@@ -162,6 +291,24 @@ class OfficeBridge:
                 self.connected = False
 
         return False
+
+    async def sync_initial_state(self):
+        """
+        Immediately fetches current METAR weather and D-ATIS runway configurations,
+        and transmits a clean sync packet to the board on connect.
+        Ensures the OLED displays live information immediately upon power-up.
+        """
+        try:
+            # Seed idle state with real-time METAR and D-ATIS
+            self.tracker.process_telemetry([], source_label="Office Sync")
+            state_dict = self.tracker.get_state_dict()
+            success = await self.transmit_payload(state_dict)
+            if success:
+                wx = state_dict.get("weather", {})
+                roles = state_dict.get("runway_roles_summary", "Standby")
+                print(f"[\033[92mSYNC\033[0m] Morning Sync complete -> Wx: {wx.get('flight_category', 'VFR')} {wx.get('temp_f', '')}F | Runway: {roles}")
+        except Exception as e:
+            print(f"[\033[93mSYNC NOTICE\033[0m] Initial state sync skipped: {e}")
 
     async def run_test_pattern(self):
         """Transmits a live simulation test sequence to verify hardware link."""
@@ -209,7 +356,7 @@ class OfficeBridge:
                 }
             },
             {
-                "label": "Test 3: Crosswind Rollout on RW 4/22 (Constant Speed Check)",
+                "label": "Test 3: Crosswind Rollout on RW 4/22",
                 "payload": {
                     "active_operations": [{
                         "runway": "4",
@@ -255,32 +402,50 @@ class OfficeBridge:
         print("[\033[92mSUCCESS\033[0m] Test pattern completed.")
 
     async def run(self, test_mode=False):
-        """Main loop: connects, polls OpenSky, matches runways, and streams telemetry."""
+        """Main loop: manages connection, smart standby, OpenSky polling, and telemetry streaming."""
         print("==================================================")
         print("    KMSP RUNWAY TRACKER - OFFICE PC BRIDGE       ")
         print("==================================================")
         print(f"Transport Mode : {self.mode.upper()}")
         print(f"Poll Interval  : {self.poll_interval}s")
         print(f"Target Board   : {BLE_DEVICE_NAME}")
+        if self.cached_ble_address:
+            print(f"Cached MAC     : {self.cached_ble_address}")
         print("--------------------------------------------------")
 
+        # Launch embedded web server in background
+        self.start_web_server()
+
+        first_connection = True
+
         while True:
+            # 1. Connection management
             if not await self.ensure_connection():
-                print("[\033[93mRETRY\033[0m] Waiting 5 seconds before retrying connection...")
-                await asyncio.sleep(5.0)
+                if not self.in_standby:
+                    print("[\033[93mSTANDBY\033[0m] Board offline / powered off. Pausing OpenSky polling to conserve API quota.")
+                    self.in_standby = True
+
+                # Standby low-duty cycle: check every 10s without hammering the CPU or network
+                await asyncio.sleep(10.0)
                 continue
+
+            # 2. Wake-up / Initial Connect Sequence
+            if self.in_standby or first_connection:
+                print("[\033[92mWAKE\033[0m] ESP32 board active! Resuming live tracking...")
+                self.in_standby = False
+                first_connection = False
+                await self.sync_initial_state()
 
             if test_mode:
                 await self.run_test_pattern()
                 break
 
-            # 1. Fetch & process live OpenSky telemetry
+            # 3. Fetch & process live OpenSky telemetry
             try:
                 raw_states = self.tracker.fetch_opensky()
                 self.tracker.process_telemetry(raw_states, source_label="OpenSky (Office)")
                 state_dict = self.tracker.get_state_dict()
 
-                # Print console summary
                 ops = state_dict.get("active_operations", [])
                 tracked = state_dict.get("tracked_count", 0)
                 roles = state_dict.get("runway_roles_summary", "Standby")
@@ -292,12 +457,10 @@ class OfficeBridge:
                 for op in ops:
                     print(f"  ✈ {op['action']} on RW {op['runway']} | {op.get('flight_label', op['callsign'])} ({op.get('aircraft_type', 'N/A')})")
 
-                # 2. Transmit to ESP32
+                # 4. Transmit to ESP32
                 success = await self.transmit_payload(state_dict)
-                if success:
-                    print(f"  ✓ Transmitted to ESP32 ({len(ops)} ops)")
-                else:
-                    print("  ✗ Transmission failed. Will reconnect on next cycle.")
+                if not success:
+                    print("  ✗ Transmission failed. Will re-verify link on next cycle.")
 
             except Exception as e:
                 print(f"[\033[91mPOLL ERROR\033[0m] {e}")
@@ -315,15 +478,27 @@ def main():
                         help="OpenSky polling interval in seconds (default: 15.0)")
     parser.add_argument("--test", action="store_true",
                         help="Run test animation pattern to verify board link")
+    parser.add_argument("--no-web", action="store_true",
+                        help="Disable embedded web server dashboard")
+    parser.add_argument("--web-port", type=int, default=8080,
+                        help="Embedded web server dashboard port (default: 8080)")
 
     args = parser.parse_args()
 
-    bridge = OfficeBridge(mode=args.mode, port=args.port, poll_interval=args.interval)
+    bridge = OfficeBridge(
+        mode=args.mode,
+        port=args.port,
+        poll_interval=args.interval,
+        web_server=not args.no_web,
+        web_port=args.web_port
+    )
 
     try:
         asyncio.run(bridge.run(test_mode=args.test))
     except KeyboardInterrupt:
         print("\n[Office Bridge] Stopped by user.")
+    finally:
+        bridge.cleanup()
 
 
 if __name__ == "__main__":
