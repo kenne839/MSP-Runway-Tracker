@@ -587,6 +587,14 @@ const PCB_LEDS = [
                             seg.state = "IDLE";
                         }
                     }
+                } else {
+                    // Flight operation completed or aircraft exited corridor!
+                    // Reset all runway segments and OLED queue back to IDLE.
+                    activeFlightEvents = [];
+                    for (let seg of RUNWAYS) {
+                        seg.state = "IDLE";
+                        seg.comet_norm = 0.0;
+                    }
                 }
             } catch (e) {}
         }
@@ -702,7 +710,16 @@ const PCB_LEDS = [
                 } else {
                     // Constant physical mm/s speed across gaps
                     seg.comet_norm += 0.006 * speedMultiplier;
-                    if (seg.comet_norm >= 1.35) seg.comet_norm = 0.0;
+                    if (seg.comet_norm >= 1.35) {
+                        if (!isLiveMode) {
+                            // In manual trigger mode, once the rollout/climbout completes, return to IDLE!
+                            seg.state = "IDLE";
+                            seg.comet_norm = 0.0;
+                            activeFlightEvents = activeFlightEvents.filter(f => f.runway !== seg.name_start && f.runway !== seg.name_end);
+                        } else {
+                            seg.comet_norm = 0.0;
+                        }
+                    }
 
                     for (let i = 0; i < count; i++) {
                         const x = seg.moving_forward ? seg.normPos[i] : (1.0 - seg.normPos[i]);
