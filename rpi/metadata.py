@@ -11,7 +11,9 @@ from .config import (
     AIRLINES_FILE,
     AIRFRAMES_FILE,
     AIRCRAFT_DB_FILE,
-    OPENSKY_ROUTES_URL
+    ROUTES_CACHE_FILE,
+    OPENSKY_ROUTES_URL,
+    ADSDB_ROUTES_URL
 )
 
 class MetadataResolver:
@@ -19,8 +21,10 @@ class MetadataResolver:
         self.airlines = self._load_json(AIRLINES_FILE, "airlines")
         self.airframes = self._load_json(AIRFRAMES_FILE, "airframes")
         self.aircraft_db = self._load_json(AIRCRAFT_DB_FILE, "aircraft DB")
+        self.routes_db = self._load_json(ROUTES_CACHE_FILE, "routes cache")
         self.route_cache: dict[str, str] = {}
         self._db_modified = False
+        self._routes_db_modified = False
         self._last_db_save = time.time()
 
     def _load_json(self, path: str, label: str) -> dict:
@@ -90,19 +94,98 @@ class MetadataResolver:
         self._maybe_save_db()
         return type_code, readable
 
+    @staticmethod
+    def _format_route_string(origin: str, dest: str, action: str) -> str:
+        """
+        Formats origin and destination into a direction-aware string for display.
+        Handles MSP hub logic (arrivals vs departures) and prefers 3-letter IATA codes.
+        """
+        orig_clean = str(origin).strip().upper()
+        dest_clean = str(dest).strip().upper()
+
+        is_orig_msp = orig_clean in ("MSP", "KMSP")
+        is_dest_msp = dest_clean in ("MSP", "KMSP")
+
+        if action == "LANDING":
+            if is_dest_msp:
+                return f"From {orig_clean}"
+            elif is_orig_msp:
+                # Database might list outbound leg for flight number; infer city pair
+                return f"From {dest_clean}"
+            else:
+                return f"From {orig_clean}"
+        elif action == "TAKING OFF":
+            if is_orig_msp:
+                return f"To {dest_clean}"
+            elif is_dest_msp:
+                # Database might list inbound leg for flight number; infer city pair
+                return f"To {orig_clean}"
+            else:
+                return f"To {dest_clean}"
+        else:
+            return f"{orig_clean} -> {dest_clean}"
+
     def resolve_route(self, callsign: str, action: str) -> str:
         """
-        Fetches route origin/destination using OpenSky routes endpoint.
-        Uses in-memory cache to avoid repeated HTTP calls.
+        Multi-tier route resolver:
+        1. In-memory session cache (0ms)
+        2. Persistent on-disk routes DB (msp_routes_cache.json) (0ms)
+        3. ADS-B DB API (adsbdb.com) (high coverage for US domestic & regionals) (~150ms)
+        4. OpenSky Network API (/api/routes) fallback (~250ms)
+        5. In-memory negative caching to prevent network spam
         """
         if not callsign or callsign == "UNKNOWN":
             return "Unknown"
 
         callsign = callsign.strip().upper()
-        if callsign in self.route_cache:
-            return self.route_cache[callsign]
+        cache_key = f"{callsign}:{action}"
+        if cache_key in self.route_cache:
+            return self.route_cache[cache_key]
 
-        route_str = "Unknown"
+        # 1. Check persistent on-disk routes database
+        if callsign in self.routes_db:
+            entry = self.routes_db[callsign]
+            if isinstance(entry, dict):
+                origin = entry.get("origin") or entry.get("origin_icao") or ""
+                dest = entry.get("destination") or entry.get("dest_icao") or ""
+                if origin and dest:
+                    formatted = self._format_route_string(origin, dest, action)
+                    self.route_cache[cache_key] = formatted
+                    return formatted
+            elif isinstance(entry, str) and entry and entry != "Unknown":
+                if " -> " in entry:
+                    parts = entry.split(" -> ")
+                    formatted = self._format_route_string(parts[0], parts[1], action)
+                    self.route_cache[cache_key] = formatted
+                    return formatted
+                self.route_cache[cache_key] = entry
+                return entry
+
+        # 2. Query adsbdb.com API (free, open, no-key, covers domestic + regional carriers)
+        try:
+            url = f"{ADSDB_ROUTES_URL}/{callsign}"
+            res = requests.get(url, headers={"User-Agent": "MSP-Runway-Tracker/1.0"}, timeout=3)
+            if res.status_code == 200:
+                data = res.json()
+                fr = data.get("response", {}).get("flightroute", {})
+                if fr and fr.get("origin") and fr.get("destination"):
+                    orig_iata = fr["origin"].get("iata_code") or fr["origin"].get("icao_code")
+                    dest_iata = fr["destination"].get("iata_code") or fr["destination"].get("icao_code")
+                    if orig_iata and dest_iata:
+                        self.routes_db[callsign] = {
+                            "origin": orig_iata,
+                            "destination": dest_iata,
+                            "airline": fr.get("airline", {}).get("name", "")
+                        }
+                        self._routes_db_modified = True
+                        self._maybe_save_db()
+                        formatted = self._format_route_string(orig_iata, dest_iata, action)
+                        self.route_cache[cache_key] = formatted
+                        return formatted
+        except Exception:
+            pass
+
+        # 3. Fallback: Query OpenSky routes endpoint
         try:
             url = f"{OPENSKY_ROUTES_URL}?callsign={callsign}"
             res = requests.get(url, timeout=3, verify=False)
@@ -111,23 +194,28 @@ class MetadataResolver:
                 route = data.get("route", [])
                 if len(route) >= 2:
                     origin, dest = route[0], route[1]
-                    if action == "LANDING":
-                        route_str = f"From {origin}"
-                    elif action == "TAKING OFF":
-                        route_str = f"To {dest}"
-                    else:
-                        route_str = f"{origin} -> {dest}"
+                    self.routes_db[callsign] = {
+                        "origin": origin,
+                        "destination": dest
+                    }
+                    self._routes_db_modified = True
+                    self._maybe_save_db()
+                    formatted = self._format_route_string(origin, dest, action)
+                    self.route_cache[cache_key] = formatted
+                    return formatted
         except Exception:
             pass
 
-        self.route_cache[callsign] = route_str
-        return route_str
+        # 4. Negative caching in memory only (do not persist "Unknown" to disk)
+        self.route_cache[cache_key] = "Unknown"
+        return "Unknown"
 
-    def _maybe_save_db(self):
+    def _maybe_save_db(self, force: bool = False):
         """Batches writes to persistent DB to avoid high I/O overhead on SD cards."""
         now = time.time()
-        # Save at most once every 5 minutes if modified
-        if self._db_modified and (now - self._last_db_save > 300):
+        should_save = force or (now - self._last_db_save > 300)
+
+        if self._db_modified and should_save:
             try:
                 with open(AIRCRAFT_DB_FILE, "w", encoding="utf-8") as f:
                     json.dump(self.aircraft_db, f)
@@ -135,3 +223,12 @@ class MetadataResolver:
                 self._last_db_save = now
             except Exception as e:
                 print(f"Warning: Failed to save aircraft DB cache: {e}")
+
+        if self._routes_db_modified and should_save:
+            try:
+                with open(ROUTES_CACHE_FILE, "w", encoding="utf-8") as f:
+                    json.dump(self.routes_db, f, indent=2)
+                self._routes_db_modified = False
+                self._last_db_save = now
+            except Exception as e:
+                print(f"Warning: Failed to save routes DB cache: {e}")

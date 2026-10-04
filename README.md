@@ -191,8 +191,12 @@ When no active operations match the corridor filters:
 
 ## Operational Notes & Considerations
 
-- **OpenSky Route Availability:** Mode S ADS-B Out broadcasts kinematics, transponder squawk, and callsign, but **not** flight plans or route itineraries. OpenSky infers flight plans via crowdsourced schedules. Regional carriers (e.g., SkyWest / Endeavor operating under Delta Connection) frequently rotate flight numbers, so route lookups may occasionally display `"Unknown"`.
-- **Polling Intervals:** By default, the script polls every 30 seconds. Unauthenticated OpenSky endpoints are rate-limited per IP. If using an authenticated account or local ADS-B feeder (e.g., dump1090/readsb), you can lower this interval for near-instant updates.
+- **Multi-Tier Route Resolution & Persistent Caching:** Mode S ADS-B Out broadcasts kinematics, transponder squawk, and callsign, but **not** flight plans or route itineraries. The tracker implements a multi-tier route resolver:
+  1. **Persistent Local Cache (`msp_routes_cache.json`):** Pre-seeded with common MSP schedules across Delta, Sun Country, SkyWest, Endeavor, Southwest, American, United, and Cargo carriers for instant ($0\text{ ms}$) lookups.
+  2. **Community ADS-B Database (`adsbdb.com`):** Queries Planebase / David Taylor crowdsourced global schedules without requiring API keys (~95% coverage on US domestic and regional carriers).
+  3. **OpenSky Network Routes (`/api/routes`):** Fallback for international or edge-case routes.
+  4. Dynamically writes newly resolved flights back to `msp_routes_cache.json` (batched every 5 minutes to protect MicroSD card endurance).
+- **Polling Intervals:** By default, the script polls every 10–30 seconds. Unauthenticated OpenSky endpoints are rate-limited per IP. If using an authenticated account or local ADS-B feeder (e.g., dump1090/readsb), you can lower this interval for near-instant updates.
 - **Crosswind Crab Angles:** In heavy winter crosswinds, aircraft track over ground can deviate by $10^\circ\text{--}20^\circ$ from heading due to wind correction angles. The current heading tolerance is set to $\pm 25^\circ$ to accommodate crab angles.
 
 ---

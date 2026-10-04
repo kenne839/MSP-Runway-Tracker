@@ -93,6 +93,9 @@ OPENSKY_URL = "https://opensky-network.org/api/states/all"
 OPENSKY_ROUTES_URL = "https://opensky-network.org/api/routes"
 OPENSKY_POLL_INTERVAL = float(os.environ.get("MSP_POLL_INTERVAL", "10.0")) # seconds
 
+# ADS-B DB Routes Configuration (David Taylor / Planebase flight routes)
+ADSDB_ROUTES_URL = "https://api.adsbdb.com/v0/callsign"
+
 # Local ADS-B Feeder (dump1090 / readsb / tar1090) configuration
 DUMP1090_URL = os.environ.get("MSP_DUMP1090_URL", "http://localhost:8080/data/aircraft.json")
 DUMP1090_POLL_INTERVAL = 1.0  # seconds
@@ -130,6 +133,7 @@ def find_file(filename):
 AIRLINES_FILE = find_file("airlines.json")
 AIRFRAMES_FILE = find_file("airframes.json")
 AIRCRAFT_DB_FILE = find_file("msp_aircraft_db.json")
+ROUTES_CACHE_FILE = find_file("msp_routes_cache.json")
 
 # State output path: prefer Linux RAM disk (/dev/shm) to protect MicroSD card
 if os.path.isdir("/dev/shm") and os.access("/dev/shm", os.W_OK):

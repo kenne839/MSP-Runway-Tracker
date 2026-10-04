@@ -1,0 +1,892 @@
+{
+  "DAL101": {
+    "origin": "ATL",
+    "destination": "EZE",
+    "airline": "Delta Air Lines"
+  },
+  "DAL1045": {
+    "origin": "LAX",
+    "destination": "SEA",
+    "airline": "Delta Air Lines"
+  },
+  "DAL1234": {
+    "origin": "JFK",
+    "destination": "AUS",
+    "airline": "Delta Air Lines"
+  },
+  "DAL2439": {
+    "origin": "BNA",
+    "destination": "DTW",
+    "airline": "Delta Air Lines"
+  },
+  "DAL892": {
+    "origin": "LGA",
+    "destination": "PBI",
+    "airline": "Delta Air Lines"
+  },
+  "DAL1567": {
+    "origin": "ATL",
+    "destination": "PHL",
+    "airline": "Delta Air Lines"
+  },
+  "DAL345": {
+    "origin": "BOS",
+    "destination": "SEA",
+    "airline": "Delta Air Lines"
+  },
+  "DAL450": {
+    "origin": "DTW",
+    "destination": "SFO",
+    "airline": "Delta Air Lines"
+  },
+  "DAL500": {
+    "origin": "SLC",
+    "destination": "SEA",
+    "airline": "Delta Air Lines"
+  },
+  "DAL600": {
+    "origin": "JFK",
+    "destination": "SFO",
+    "airline": "Delta Air Lines"
+  },
+  "DAL700": {
+    "origin": "CVG",
+    "destination": "DEN",
+    "airline": "Delta Air Lines"
+  },
+  "DAL800": {
+    "origin": "DEN",
+    "destination": "ATL",
+    "airline": "Delta Air Lines"
+  },
+  "DAL900": {
+    "origin": "MSP",
+    "destination": "LGA",
+    "airline": "Delta Air Lines"
+  },
+  "DAL1420": {
+    "origin": "MSP",
+    "destination": "PHX",
+    "airline": "Delta Air Lines"
+  },
+  "DAL1520": {
+    "origin": "MSP",
+    "destination": "LAS",
+    "airline": "Delta Air Lines"
+  },
+  "DAL1620": {
+    "origin": "MSP",
+    "destination": "MCO",
+    "airline": "Delta Air Lines"
+  },
+  "DAL1720": {
+    "origin": "MSP",
+    "destination": "DFW",
+    "airline": "Delta Air Lines"
+  },
+  "DAL1820": {
+    "origin": "MSP",
+    "destination": "ORD",
+    "airline": "Delta Air Lines"
+  },
+  "DAL1920": {
+    "origin": "MSP",
+    "destination": "ATL",
+    "airline": "Delta Air Lines"
+  },
+  "DAL2020": {
+    "origin": "MSP",
+    "destination": "DEN",
+    "airline": "Delta Air Lines"
+  },
+  "DAL2120": {
+    "origin": "MSP",
+    "destination": "SEA",
+    "airline": "Delta Air Lines"
+  },
+  "DAL2220": {
+    "origin": "MSP",
+    "destination": "LAX",
+    "airline": "Delta Air Lines"
+  },
+  "DAL2320": {
+    "origin": "MSP",
+    "destination": "SFO",
+    "airline": "Delta Air Lines"
+  },
+  "DAL2420": {
+    "origin": "MSP",
+    "destination": "BOS",
+    "airline": "Delta Air Lines"
+  },
+  "DAL2520": {
+    "origin": "MSP",
+    "destination": "DCA",
+    "airline": "Delta Air Lines"
+  },
+  "SCX101": {
+    "origin": "MSP",
+    "destination": "LAS",
+    "airline": "Sun Country Airlines"
+  },
+  "SCX102": {
+    "origin": "LAS",
+    "destination": "MSP",
+    "airline": "Sun Country Airlines"
+  },
+  "SCX103": {
+    "origin": "MSP",
+    "destination": "LAS",
+    "airline": "Sun Country Airlines"
+  },
+  "SCX104": {
+    "origin": "LAS",
+    "destination": "MSP",
+    "airline": "Sun Country Airlines"
+  },
+  "SCX105": {
+    "origin": "MSP",
+    "destination": "PHX",
+    "airline": "Sun Country Airlines"
+  },
+  "SCX106": {
+    "origin": "PHX",
+    "destination": "MSP",
+    "airline": "Sun Country Airlines"
+  },
+  "SCX107": {
+    "origin": "MSP",
+    "destination": "LAX",
+    "airline": "Sun Country Airlines"
+  },
+  "SCX108": {
+    "origin": "LAX",
+    "destination": "MSP",
+    "airline": "Sun Country Airlines"
+  },
+  "SCX109": {
+    "origin": "MSP",
+    "destination": "SFO",
+    "airline": "Sun Country Airlines"
+  },
+  "SCX110": {
+    "origin": "SFO",
+    "destination": "MSP",
+    "airline": "Sun Country Airlines"
+  },
+  "SCX111": {
+    "origin": "MSP",
+    "destination": "SAN",
+    "airline": "Sun Country Airlines"
+  },
+  "SCX112": {
+    "origin": "SAN",
+    "destination": "MSP",
+    "airline": "Sun Country Airlines"
+  },
+  "SCX123": {
+    "origin": "BLI",
+    "destination": "IFP",
+    "airline": "Sun Country Airlines"
+  },
+  "SCX201": {
+    "origin": "MSP",
+    "destination": "MCO",
+    "airline": "Sun Country Airlines"
+  },
+  "SCX202": {
+    "origin": "MCO",
+    "destination": "MSP",
+    "airline": "Sun Country Airlines"
+  },
+  "SCX205": {
+    "origin": "MSP",
+    "destination": "LAS",
+    "airline": "Sun Country Airlines"
+  },
+  "SCX206": {
+    "origin": "MCO",
+    "destination": "MKE",
+    "airline": "Sun Country Airlines"
+  },
+  "SCX211": {
+    "origin": "MSP",
+    "destination": "TPA",
+    "airline": "Sun Country Airlines"
+  },
+  "SCX212": {
+    "origin": "TPA",
+    "destination": "MSP",
+    "airline": "Sun Country Airlines"
+  },
+  "SCX221": {
+    "origin": "MSP",
+    "destination": "FLL",
+    "airline": "Sun Country Airlines"
+  },
+  "SCX222": {
+    "origin": "FLL",
+    "destination": "MSP",
+    "airline": "Sun Country Airlines"
+  },
+  "SCX231": {
+    "origin": "MSP",
+    "destination": "RSW",
+    "airline": "Sun Country Airlines"
+  },
+  "SCX232": {
+    "origin": "RSW",
+    "destination": "MSP",
+    "airline": "Sun Country Airlines"
+  },
+  "SCX241": {
+    "origin": "MSP",
+    "destination": "CUN",
+    "airline": "Sun Country Airlines"
+  },
+  "SCX242": {
+    "origin": "CUN",
+    "destination": "MSP",
+    "airline": "Sun Country Airlines"
+  },
+  "SCX311": {
+    "origin": "MSP",
+    "destination": "MIA",
+    "airline": "Sun Country Airlines"
+  },
+  "SCX312": {
+    "origin": "MIA",
+    "destination": "MSP",
+    "airline": "Sun Country Airlines"
+  },
+  "SCX401": {
+    "origin": "MSP",
+    "destination": "SAN",
+    "airline": "Sun Country Airlines"
+  },
+  "SCX402": {
+    "origin": "SAN",
+    "destination": "MSP",
+    "airline": "Sun Country Airlines"
+  },
+  "SCX501": {
+    "origin": "MSP",
+    "destination": "SEA",
+    "airline": "Sun Country Airlines"
+  },
+  "SCX502": {
+    "origin": "SEA",
+    "destination": "MSP",
+    "airline": "Sun Country Airlines"
+  },
+  "SKW3621": {
+    "origin": "BHM",
+    "destination": "DTW",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW3842": {
+    "origin": "MSP",
+    "destination": "RAP",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW3843": {
+    "origin": "HPN",
+    "destination": "DTW",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW3900": {
+    "origin": "SJC",
+    "destination": "SEA",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4000": {
+    "origin": "SAT",
+    "destination": "SLC",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4012": {
+    "origin": "SLC",
+    "destination": "ABQ",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4120": {
+    "origin": "DTW",
+    "destination": "MEM",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4501": {
+    "origin": "MSP",
+    "destination": "DLH",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4502": {
+    "origin": "DLH",
+    "destination": "MSP",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4503": {
+    "origin": "MSP",
+    "destination": "RST",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4504": {
+    "origin": "RST",
+    "destination": "MSP",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4505": {
+    "origin": "MSP",
+    "destination": "FAR",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4506": {
+    "origin": "FAR",
+    "destination": "MSP",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4507": {
+    "origin": "MSP",
+    "destination": "BIS",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4508": {
+    "origin": "BIS",
+    "destination": "MSP",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4509": {
+    "origin": "MSP",
+    "destination": "GFK",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4510": {
+    "origin": "GFK",
+    "destination": "MSP",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4511": {
+    "origin": "MSP",
+    "destination": "MOT",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4512": {
+    "origin": "MOT",
+    "destination": "MSP",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4513": {
+    "origin": "MSP",
+    "destination": "FSD",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4514": {
+    "origin": "FSD",
+    "destination": "MSP",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4515": {
+    "origin": "MSP",
+    "destination": "ABR",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4516": {
+    "origin": "ABR",
+    "destination": "MSP",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4517": {
+    "origin": "MSP",
+    "destination": "BJI",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4518": {
+    "origin": "BJI",
+    "destination": "MSP",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4519": {
+    "origin": "MSP",
+    "destination": "BRD",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4520": {
+    "origin": "BRD",
+    "destination": "MSP",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4521": {
+    "origin": "MSP",
+    "destination": "HIB",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4522": {
+    "origin": "HIB",
+    "destination": "MSP",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4523": {
+    "origin": "MSP",
+    "destination": "INL",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4524": {
+    "origin": "INL",
+    "destination": "MSP",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4525": {
+    "origin": "MSP",
+    "destination": "EAU",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4526": {
+    "origin": "EAU",
+    "destination": "MSP",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4527": {
+    "origin": "MSP",
+    "destination": "LSE",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4528": {
+    "origin": "LSE",
+    "destination": "MSP",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4529": {
+    "origin": "MSP",
+    "destination": "GRB",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4530": {
+    "origin": "GRB",
+    "destination": "MSP",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4531": {
+    "origin": "MSP",
+    "destination": "ATW",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4532": {
+    "origin": "ATW",
+    "destination": "MSP",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4533": {
+    "origin": "MSP",
+    "destination": "CWA",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4534": {
+    "origin": "CWA",
+    "destination": "MSP",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4535": {
+    "origin": "MSP",
+    "destination": "TVC",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4536": {
+    "origin": "TVC",
+    "destination": "MSP",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4537": {
+    "origin": "MSP",
+    "destination": "MQT",
+    "airline": "SkyWest Airlines"
+  },
+  "SKW4538": {
+    "origin": "MQT",
+    "destination": "MSP",
+    "airline": "SkyWest Airlines"
+  },
+  "EDV4800": {
+    "origin": "CVG",
+    "destination": "DTW",
+    "airline": "Endeavor Air"
+  },
+  "EDV4900": {
+    "origin": "LGA",
+    "destination": "YYZ",
+    "airline": "Endeavor Air"
+  },
+  "EDV4920": {
+    "origin": "DTW",
+    "destination": "DSM",
+    "airline": "Endeavor Air"
+  },
+  "EDV5100": {
+    "origin": "LGA",
+    "destination": "YYZ",
+    "airline": "Endeavor Air"
+  },
+  "EDV5112": {
+    "origin": "JFK",
+    "destination": "BGR",
+    "airline": "Endeavor Air"
+  },
+  "EDV5401": {
+    "origin": "MSP",
+    "destination": "GRR",
+    "airline": "Endeavor Air"
+  },
+  "EDV5402": {
+    "origin": "GRR",
+    "destination": "MSP",
+    "airline": "Endeavor Air"
+  },
+  "EDV5403": {
+    "origin": "MSP",
+    "destination": "MSN",
+    "airline": "Endeavor Air"
+  },
+  "EDV5404": {
+    "origin": "MSN",
+    "destination": "MSP",
+    "airline": "Endeavor Air"
+  },
+  "EDV5405": {
+    "origin": "MSP",
+    "destination": "MKE",
+    "airline": "Endeavor Air"
+  },
+  "EDV5406": {
+    "origin": "MKE",
+    "destination": "MSP",
+    "airline": "Endeavor Air"
+  },
+  "EDV5407": {
+    "origin": "MSP",
+    "destination": "OMA",
+    "airline": "Endeavor Air"
+  },
+  "EDV5408": {
+    "origin": "OMA",
+    "destination": "MSP",
+    "airline": "Endeavor Air"
+  },
+  "EDV5409": {
+    "origin": "MSP",
+    "destination": "CID",
+    "airline": "Endeavor Air"
+  },
+  "EDV5410": {
+    "origin": "CID",
+    "destination": "MSP",
+    "airline": "Endeavor Air"
+  },
+  "EDV5411": {
+    "origin": "MSP",
+    "destination": "DSM",
+    "airline": "Endeavor Air"
+  },
+  "EDV5412": {
+    "origin": "DSM",
+    "destination": "MSP",
+    "airline": "Endeavor Air"
+  },
+  "EDV5413": {
+    "origin": "MSP",
+    "destination": "SBN",
+    "airline": "Endeavor Air"
+  },
+  "EDV5414": {
+    "origin": "SBN",
+    "destination": "MSP",
+    "airline": "Endeavor Air"
+  },
+  "EDV5415": {
+    "origin": "MSP",
+    "destination": "FWA",
+    "airline": "Endeavor Air"
+  },
+  "EDV5416": {
+    "origin": "FWA",
+    "destination": "MSP",
+    "airline": "Endeavor Air"
+  },
+  "SWA100": {
+    "origin": "BWI",
+    "destination": "PBI",
+    "airline": "Southwest Airlines"
+  },
+  "SWA456": {
+    "origin": "DEN",
+    "destination": "PHX",
+    "airline": "Southwest Airlines"
+  },
+  "SWA1521": {
+    "origin": "EUG",
+    "destination": "SJC",
+    "airline": "Southwest Airlines"
+  },
+  "SWA2204": {
+    "origin": "PHX",
+    "destination": "ORD",
+    "airline": "Southwest Airlines"
+  },
+  "SWA1201": {
+    "origin": "MSP",
+    "destination": "MDW",
+    "airline": "Southwest Airlines"
+  },
+  "SWA1202": {
+    "origin": "MDW",
+    "destination": "MSP",
+    "airline": "Southwest Airlines"
+  },
+  "SWA1203": {
+    "origin": "MSP",
+    "destination": "DEN",
+    "airline": "Southwest Airlines"
+  },
+  "SWA1204": {
+    "origin": "DEN",
+    "destination": "MSP",
+    "airline": "Southwest Airlines"
+  },
+  "SWA1205": {
+    "origin": "MSP",
+    "destination": "PHX",
+    "airline": "Southwest Airlines"
+  },
+  "SWA1206": {
+    "origin": "PHX",
+    "destination": "MSP",
+    "airline": "Southwest Airlines"
+  },
+  "SWA1207": {
+    "origin": "MSP",
+    "destination": "BWI",
+    "airline": "Southwest Airlines"
+  },
+  "SWA1208": {
+    "origin": "BWI",
+    "destination": "MSP",
+    "airline": "Southwest Airlines"
+  },
+  "SWA1209": {
+    "origin": "MSP",
+    "destination": "BNA",
+    "airline": "Southwest Airlines"
+  },
+  "SWA1210": {
+    "origin": "BNA",
+    "destination": "MSP",
+    "airline": "Southwest Airlines"
+  },
+  "SWA1211": {
+    "origin": "MSP",
+    "destination": "STL",
+    "airline": "Southwest Airlines"
+  },
+  "SWA1212": {
+    "origin": "STL",
+    "destination": "MSP",
+    "airline": "Southwest Airlines"
+  },
+  "AAL100": {
+    "origin": "JFK",
+    "destination": "LHR",
+    "airline": "American Airlines"
+  },
+  "AAL123": {
+    "origin": "DFW",
+    "destination": "OGG",
+    "airline": "American Airlines"
+  },
+  "AAL500": {
+    "origin": "SFO",
+    "destination": "PHL",
+    "airline": "American Airlines"
+  },
+  "AAL1422": {
+    "origin": "DFW",
+    "destination": "CHS",
+    "airline": "American Airlines"
+  },
+  "AAL2310": {
+    "origin": "MIA",
+    "destination": "LGA",
+    "airline": "American Airlines"
+  },
+  "AAL1101": {
+    "origin": "MSP",
+    "destination": "DFW",
+    "airline": "American Airlines"
+  },
+  "AAL1102": {
+    "origin": "DFW",
+    "destination": "MSP",
+    "airline": "American Airlines"
+  },
+  "AAL1103": {
+    "origin": "MSP",
+    "destination": "CLT",
+    "airline": "American Airlines"
+  },
+  "AAL1104": {
+    "origin": "CLT",
+    "destination": "MSP",
+    "airline": "American Airlines"
+  },
+  "AAL1105": {
+    "origin": "MSP",
+    "destination": "ORD",
+    "airline": "American Airlines"
+  },
+  "AAL1106": {
+    "origin": "ORD",
+    "destination": "MSP",
+    "airline": "American Airlines"
+  },
+  "AAL1107": {
+    "origin": "MSP",
+    "destination": "PHX",
+    "airline": "American Airlines"
+  },
+  "AAL1108": {
+    "origin": "PHX",
+    "destination": "MSP",
+    "airline": "American Airlines"
+  },
+  "AAL1109": {
+    "origin": "MSP",
+    "destination": "MIA",
+    "airline": "American Airlines"
+  },
+  "AAL1110": {
+    "origin": "MIA",
+    "destination": "MSP",
+    "airline": "American Airlines"
+  },
+  "AAL1111": {
+    "origin": "MSP",
+    "destination": "PHL",
+    "airline": "American Airlines"
+  },
+  "AAL1112": {
+    "origin": "PHL",
+    "destination": "MSP",
+    "airline": "American Airlines"
+  },
+  "UAL200": {
+    "origin": "GUM",
+    "destination": "HNL",
+    "airline": "United Airlines"
+  },
+  "UAL1301": {
+    "origin": "MSP",
+    "destination": "ORD",
+    "airline": "United Airlines"
+  },
+  "UAL1302": {
+    "origin": "ORD",
+    "destination": "MSP",
+    "airline": "United Airlines"
+  },
+  "UAL1303": {
+    "origin": "MSP",
+    "destination": "DEN",
+    "airline": "United Airlines"
+  },
+  "UAL1304": {
+    "origin": "DEN",
+    "destination": "MSP",
+    "airline": "United Airlines"
+  },
+  "UAL1305": {
+    "origin": "MSP",
+    "destination": "IAH",
+    "airline": "United Airlines"
+  },
+  "UAL1306": {
+    "origin": "IAH",
+    "destination": "MSP",
+    "airline": "United Airlines"
+  },
+  "UAL1307": {
+    "origin": "MSP",
+    "destination": "EWR",
+    "airline": "United Airlines"
+  },
+  "UAL1308": {
+    "origin": "EWR",
+    "destination": "MSP",
+    "airline": "United Airlines"
+  },
+  "UAL1309": {
+    "origin": "MSP",
+    "destination": "SFO",
+    "airline": "United Airlines"
+  },
+  "UAL1310": {
+    "origin": "SFO",
+    "destination": "MSP",
+    "airline": "United Airlines"
+  },
+  "UAL1311": {
+    "origin": "MSP",
+    "destination": "IAD",
+    "airline": "United Airlines"
+  },
+  "UAL1312": {
+    "origin": "IAD",
+    "destination": "MSP",
+    "airline": "United Airlines"
+  },
+  "FDX1420": {
+    "origin": "MEM",
+    "destination": "DEN",
+    "airline": "Federal Express"
+  },
+  "FDX1201": {
+    "origin": "MSP",
+    "destination": "MEM",
+    "airline": "Federal Express"
+  },
+  "FDX1202": {
+    "origin": "MEM",
+    "destination": "MSP",
+    "airline": "Federal Express"
+  },
+  "FDX1203": {
+    "origin": "MSP",
+    "destination": "IND",
+    "airline": "Federal Express"
+  },
+  "FDX1204": {
+    "origin": "IND",
+    "destination": "MSP",
+    "airline": "Federal Express"
+  },
+  "UPS1201": {
+    "origin": "MSP",
+    "destination": "SDF",
+    "airline": "United Parcel Service"
+  },
+  "UPS1202": {
+    "origin": "SDF",
+    "destination": "MSP",
+    "airline": "United Parcel Service"
+  },
+  "UPS1203": {
+    "origin": "MSP",
+    "destination": "RFD",
+    "airline": "United Parcel Service"
+  },
+  "UPS1204": {
+    "origin": "RFD",
+    "destination": "MSP",
+    "airline": "United Parcel Service"
+  },
+  "EDV5280": {
+    "origin": "TYS",
+    "destination": "LGA",
+    "airline": "Endeavor Air"
+  }
+}

@@ -91,6 +91,7 @@ STATE_FILE = os.path.join(BASE_DIR, "runway_state.json")
 AIRLINES_FILE = os.path.join(BASE_DIR, "airlines.json")
 AIRCRAFT_DB_FILE = os.path.join(BASE_DIR, "msp_aircraft_db.json")
 AIRFRAMES_FILE = os.path.join(BASE_DIR, "airframes.json")
+ROUTES_CACHE_FILE = os.path.join(BASE_DIR, "msp_routes_cache.json")
 
 # ==============================================================================
 # STATIC & PERSISTENT DATA TABLES
@@ -124,8 +125,18 @@ else:
     AIRCRAFT_DB = {}
     print(f"Notice: {AIRCRAFT_DB_FILE} not found. Creating empty local cache.")
 
-# In-memory session cache for daily flight routes (maps callsign -> origin/destination string).
-# Prevents repeated HTTP calls to OpenSky's /api/routes endpoint during a single session.
+# Load local persistent routes database: Maps callsigns to origin/destination
+if os.path.exists(ROUTES_CACHE_FILE):
+    try:
+        with open(ROUTES_CACHE_FILE, "r", encoding="utf-8") as f:
+            ROUTES_DB = json.load(f)
+        print(f"Loaded {len(ROUTES_DB):,} flight routes from {ROUTES_CACHE_FILE}.")
+    except Exception:
+        ROUTES_DB = {}
+else:
+    ROUTES_DB = {}
+
+# In-memory session cache for daily flight routes (maps callsign:action -> formatted route string).
 ROUTE_CACHE = {}
 
 # ==============================================================================
@@ -228,53 +239,118 @@ def get_aircraft_type(icao24):
 
     return ac_type
 
+def format_route_string(origin, dest, action):
+    """Formats origin/destination into direction-aware route string for display."""
+    orig_clean = str(origin).strip().upper()
+    dest_clean = str(dest).strip().upper()
+    is_orig_msp = orig_clean in ("MSP", "KMSP")
+    is_dest_msp = dest_clean in ("MSP", "KMSP")
+
+    if action == "LANDING":
+        if is_dest_msp:
+            return f"From {orig_clean}"
+        elif is_orig_msp:
+            return f"From {dest_clean}"
+        else:
+            return f"From {orig_clean}"
+    elif action == "TAKING OFF":
+        if is_orig_msp:
+            return f"To {dest_clean}"
+        elif is_dest_msp:
+            return f"To {orig_clean}"
+        else:
+            return f"To {dest_clean}"
+    else:
+        return f"{orig_clean} -> {dest_clean}"
+
 def get_flight_route(callsign, action):
     """
-    Fetches the flight route from OpenSky Network's routes API based on callsign.
-    Parses origin airport for arrivals, and destination airport for departures.
-
-    Args:
-        callsign (str): Aircraft flight callsign (e.g., 'DAL793').
-        action (str): Current movement classification ('LANDING' or 'TAKING OFF').
-
-    Returns:
-        str: Human-readable route string (e.g., 'From KDEN', 'To KORD', or 'Unknown').
+    Fetches flight route using multi-tier resolution:
+    1. In-memory session cache (0ms)
+    2. Persistent on-disk routes DB (msp_routes_cache.json) (0ms)
+    3. ADS-B DB API (adsbdb.com) (high coverage for US domestic & regionals) (~150ms)
+    4. OpenSky Network API (/api/routes) fallback (~250ms)
     """
     if not callsign or callsign == "UNKNOWN":
         return "Unknown"
-    
-    callsign = callsign.strip()
-    
-    # Return cached route if already resolved in this session
-    if callsign in ROUTE_CACHE:
-        return ROUTE_CACHE[callsign]
-        
+
+    callsign = callsign.strip().upper()
+    cache_key = f"{callsign}:{action}"
+
+    if cache_key in ROUTE_CACHE:
+        return ROUTE_CACHE[cache_key]
+
+    # 1. Check persistent on-disk routes database
+    if callsign in ROUTES_DB:
+        entry = ROUTES_DB[callsign]
+        if isinstance(entry, dict):
+            origin = entry.get("origin") or entry.get("origin_icao") or ""
+            dest = entry.get("destination") or entry.get("dest_icao") or ""
+            if origin and dest:
+                formatted = format_route_string(origin, dest, action)
+                ROUTE_CACHE[cache_key] = formatted
+                return formatted
+        elif isinstance(entry, str) and entry and entry != "Unknown":
+            if " -> " in entry:
+                parts = entry.split(" -> ")
+                formatted = format_route_string(parts[0], parts[1], action)
+                ROUTE_CACHE[cache_key] = formatted
+                return formatted
+            ROUTE_CACHE[cache_key] = entry
+            return entry
+
+    # 2. Query adsbdb.com API (free, open, no-key, covers domestic + regional carriers)
+    try:
+        url = f"https://api.adsbdb.com/v0/callsign/{callsign}"
+        res = requests.get(url, headers={"User-Agent": "MSP-Runway-Tracker/1.0"}, timeout=3)
+        if res.status_code == 200:
+            data = res.json()
+            fr = data.get("response", {}).get("flightroute", {})
+            if fr and fr.get("origin") and fr.get("destination"):
+                orig_iata = fr["origin"].get("iata_code") or fr["origin"].get("icao_code")
+                dest_iata = fr["destination"].get("iata_code") or fr["destination"].get("icao_code")
+                if orig_iata and dest_iata:
+                    ROUTES_DB[callsign] = {
+                        "origin": orig_iata,
+                        "destination": dest_iata,
+                        "airline": fr.get("airline", {}).get("name", "")
+                    }
+                    try:
+                        with open(ROUTES_CACHE_FILE, "w", encoding="utf-8") as f:
+                            json.dump(ROUTES_DB, f, indent=2)
+                    except Exception:
+                        pass
+                    formatted = format_route_string(orig_iata, dest_iata, action)
+                    ROUTE_CACHE[cache_key] = formatted
+                    return formatted
+    except Exception:
+        pass
+
+    # 3. Fallback: Query OpenSky routes API
     try:
         url = f"https://opensky-network.org/api/routes?callsign={callsign}"
         res = requests.get(url, timeout=3, verify=False)
-        
         if res.status_code == 200:
             data = res.json()
             route = data.get("route", [])
-            
-            # route format is expected to be [origin_icao, destination_icao]
             if len(route) >= 2:
-                origin = route[0]
-                dest = route[1]
-                
-                if action == "LANDING":
-                    route_str = f"From {origin}"
-                elif action == "TAKING OFF":
-                    route_str = f"To {dest}"
-                else:
-                    route_str = f"{origin} -> {dest}"
-                    
-                ROUTE_CACHE[callsign] = route_str
-                return route_str
+                origin, dest = route[0], route[1]
+                ROUTES_DB[callsign] = {
+                    "origin": origin,
+                    "destination": dest
+                }
+                try:
+                    with open(ROUTES_CACHE_FILE, "w", encoding="utf-8") as f:
+                        json.dump(ROUTES_DB, f, indent=2)
+                except Exception:
+                    pass
+                formatted = format_route_string(origin, dest, action)
+                ROUTE_CACHE[cache_key] = formatted
+                return formatted
     except Exception:
         pass
-        
-    ROUTE_CACHE[callsign] = "Unknown"
+
+    ROUTE_CACHE[cache_key] = "Unknown"
     return "Unknown"
 
 # ==============================================================================

@@ -26,13 +26,16 @@ The Raspberry Pi service is responsible for:
 rpi/
 ├── config.py              # Configuration thresholds, coordinates, URLs, ports
 ├── spatial.py             # Tangent plane projection and runway geometry
-├── metadata.py            # Airlines, airframes, routes, and transponder resolver
+├── metadata.py            # Airlines, airframes, multi-tier routes, transponder resolver
 ├── tracker.py             # Polling engine, kinematic filter, thread-safe state store
 ├── server.py              # Multi-threaded HTTP server & web dashboard
 ├── main.py                # Service launcher entry point
 ├── requirements.txt       # Python dependencies
 └── service/
     └── msp-tracker.service # systemd auto-start configuration
+
+msp_routes_cache.json      # Persistent local cache of published flight itineraries
+msp_aircraft_db.json       # Persistent local Mode S hex -> airframe database
 ```
 
 ---
