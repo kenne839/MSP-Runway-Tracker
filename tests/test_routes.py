@@ -39,20 +39,39 @@ class TestRouteResolution(unittest.TestCase):
         self.assertEqual(skw_route, "To RAP")
 
     def test_format_route_string_helper(self):
-        """Test direction-aware helper formatting."""
+        """Test direction-aware helper formatting and strict rejection of non-MSP routes."""
         self.assertEqual(format_route_string("DEN", "MSP", "LANDING"), "From DEN")
         self.assertEqual(format_route_string("MSP", "ORD", "TAKING OFF"), "To ORD")
         # Turnaround / paired leg inference:
         self.assertEqual(format_route_string("MSP", "LAS", "LANDING"), "From LAS")
         self.assertEqual(format_route_string("SAN", "MSP", "TAKING OFF"), "To SAN")
+        # Strict MSP anchor rejection for non-MSP city pairs:
+        self.assertIsNone(format_route_string("ATL", "ALB", "LANDING"), "Must reject ATL->ALB (DAL2225 bug)")
+        self.assertIsNone(format_route_string("YYZ", "DTW", "LANDING"), "Must reject YYZ->DTW (UAL8172 bug)")
+        self.assertIsNone(format_route_string("LAX", "SEA", "TAKING OFF"), "Must reject LAX->SEA")
 
     def test_live_adsbdb_lookup(self):
         """Test live query against adsbdb.com for flight not in memory cache."""
-        # Query known commercial flight
-        test_cs = "DAL1045" # LAX -> SEA
+        # Query known commercial flight touching MSP (DAL1420 is MSP -> PHX)
+        test_cs = "DAL1420"
         res = self.resolver.resolve_route(test_cs, "TAKING OFF")
-        self.assertTrue(res.startswith("To ") or res.startswith("From "), f"Got: {res}")
+        self.assertEqual(res, "To PHX")
         self.assertIn(test_cs, self.resolver.routes_db)
+
+    def test_dal2225_resolution(self):
+        """Verify DAL2225 resolves to MCO -> MSP (Orlando), avoiding false ATL."""
+        res = self.resolver.resolve_route("DAL2225", "LANDING")
+        self.assertEqual(res, "From MCO")
+
+    def test_ual8172_resolution(self):
+        """Verify UAL8172 resolves to IAH -> MSP (Houston), avoiding false YYZ."""
+        res = self.resolver.resolve_route("UAL8172", "LANDING")
+        self.assertEqual(res, "From IAH")
+
+    def test_non_msp_flight_rejected(self):
+        """Verify non-MSP flight (e.g. LAX->SEA) is strictly rejected and returns 'Unknown'."""
+        res = self.resolver.resolve_route("DAL1045", "TAKING OFF")
+        self.assertEqual(res, "Unknown")
 
     def test_negative_caching_and_invalid(self):
         """Verify invalid or unknown flights return 'Unknown' safely."""
@@ -64,6 +83,10 @@ class TestRouteResolution(unittest.TestCase):
         """Verify script.py route resolution matches."""
         r = get_flight_route("DAL900", "TAKING OFF")
         self.assertEqual(r, "To LGA")
+        r_dal2225 = get_flight_route("DAL2225", "LANDING")
+        self.assertEqual(r_dal2225, "From MCO")
+        r_ual8172 = get_flight_route("UAL8172", "LANDING")
+        self.assertEqual(r_ual8172, "From IAH")
 
     def test_ttl_stale_revalidation(self):
         """Verify entries older than 14 days are revalidated and updated."""
@@ -94,6 +117,14 @@ class TestRouteResolution(unittest.TestCase):
         # Network will 404 on STALE999, but stale fallback should return "To FAR"
         res = self.resolver.resolve_route(fake_cs, "TAKING OFF")
         self.assertEqual(res, "To FAR", "Should gracefully retain stale route if network fails")
+
+    def test_flightaware_scraper_live(self):
+        """Verify live FlightAware scraper resolves filed flight plan touching MSP."""
+        fa_res = self.resolver._query_flightaware("DAL2225")
+        if fa_res:
+            orig, dest, airline = fa_res
+            self.assertEqual(orig, "MCO")
+            self.assertEqual(dest, "MSP")
 
 
 if __name__ == "__main__":
