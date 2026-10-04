@@ -68,6 +68,20 @@ class TestRouteResolution(unittest.TestCase):
         res = self.resolver.resolve_route("UAL8172", "LANDING")
         self.assertEqual(res, "From IAH")
 
+    def test_scx8457_resolution(self):
+        """Verify SCX8457 (Sun Country charter) resolves to SDF -> MSP (Louisville), avoiding false SWF."""
+        res = self.resolver.resolve_route("SCX8457", "LANDING")
+        self.assertEqual(res, "From SDF")
+
+    def test_is_charter_detection(self):
+        """Verify charter / special section (8000+ series) callsign identification."""
+        self.assertTrue(self.resolver._is_charter_or_special("SCX8457"))
+        self.assertTrue(self.resolver._is_charter_or_special("UAL8172"))
+        self.assertTrue(self.resolver._is_charter_or_special("DAL9961"))
+        self.assertFalse(self.resolver._is_charter_or_special("DAL900"))
+        self.assertFalse(self.resolver._is_charter_or_special("SCX102"))
+        self.assertFalse(self.resolver._is_charter_or_special("DAL2225"))
+
     def test_non_msp_flight_rejected(self):
         """Verify non-MSP flight (e.g. LAX->SEA) is strictly rejected and returns 'Unknown'."""
         res = self.resolver.resolve_route("DAL1045", "TAKING OFF")
@@ -87,6 +101,8 @@ class TestRouteResolution(unittest.TestCase):
         self.assertEqual(r_dal2225, "From MCO")
         r_ual8172 = get_flight_route("UAL8172", "LANDING")
         self.assertEqual(r_ual8172, "From IAH")
+        r_scx8457 = get_flight_route("SCX8457", "LANDING")
+        self.assertEqual(r_scx8457, "From SDF")
 
     def test_ttl_stale_revalidation(self):
         """Verify entries older than 14 days are revalidated and updated."""

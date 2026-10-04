@@ -868,5 +868,30 @@
     "destination": "MSP",
     "airline": "Southwest Airlines Co.",
     "updated": 1791086790
+  },
+  "DAL9961": {
+    "origin": "MSP",
+    "destination": "ATL",
+    "airline": "Delta Air Lines, Inc.",
+    "updated": 1791089803
+  },
+  "DAL413": {
+    "origin": "LAX",
+    "destination": "MSP",
+    "airline": "Delta Air Lines",
+    "updated": 1791090334
+  },
+  "SCX8457": {
+    "origin": "SDF",
+    "destination": "MSP",
+    "airline": "MN Airlines D/B/A Sun Country Airlines, Inc.",
+    "updated": 1791090967,
+    "is_charter": true
+  },
+  "UAL667": {
+    "origin": "DEN",
+    "destination": "MSP",
+    "airline": "United Air Lines Inc.",
+    "updated": 1791090730
   }
 }

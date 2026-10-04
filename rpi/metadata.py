@@ -225,16 +225,37 @@ class MetadataResolver:
         except Exception:
             return None
 
+    CHARTER_CACHE_TTL_SEC = 21600  # 6 hours for ad-hoc charter/ferry operations
+
+    @classmethod
+    def _is_charter_or_special(cls, callsign: str) -> bool:
+        """
+        Identifies whether a callsign represents an ad-hoc charter, sports team charter,
+        military contract flight, or repositioning/ferry flight (e.g. 8000-9999 series).
+        These operations do not have permanent city pairs, so static databases (like adsbdb.com)
+        frequently contain stale historical legs from previous missions (e.g. SCX8457 SWF vs SDF).
+        """
+        if not callsign or len(callsign) < 3:
+            return False
+        c = callsign.strip().upper()
+        m = re.search(r"(\d+)$", c)
+        if m:
+            val = int(m.group(1))
+            if val >= 8000:
+                return True
+        return False
+
     def resolve_route(self, callsign: str, action: str) -> str:
         """
         Multi-tier route resolver with Strict MSP Anchor Sanity Check:
         1. In-memory session cache (0ms)
-        2. Persistent on-disk routes DB (msp_routes_cache.json) (0ms if fresh < 14 days and valid MSP anchor)
-        3. ADS-B DB API (adsbdb.com) (~150ms; only accepted if it touches MSP)
-        4. FlightAware live real-time flight plan scraper (~400ms; parses filed FAA/ADS-B flight plan)
-        5. OpenSky Network API (/api/routes) fallback (~250ms; only accepted if it touches MSP)
-        6. Stale Fallback: If network lookup fails, retain existing cached itinerary IF it touches MSP.
-        7. Negative caching to prevent repeated network spam for unresolvable callsigns.
+        2. Charter / Special flight check (8000-9999 series): Always query live FlightAware first!
+        3. Persistent on-disk routes DB (msp_routes_cache.json) (0ms if fresh < 14 days and valid MSP anchor)
+        4. ADS-B DB API (adsbdb.com) (~150ms; only accepted if it touches MSP)
+        5. FlightAware live real-time flight plan scraper (~400ms; parses filed FAA/ADS-B flight plan)
+        6. OpenSky Network API (/api/routes) fallback (~250ms; only accepted if it touches MSP)
+        7. Stale Fallback: If network lookup fails, retain existing cached itinerary IF it touches MSP.
+        8. Negative caching to prevent repeated network spam for unresolvable callsigns.
         """
         if not callsign or callsign == "UNKNOWN":
             return "Unknown"
@@ -245,10 +266,43 @@ class MetadataResolver:
             return self.route_cache[cache_key]
 
         now = time.time()
+        is_charter = self._is_charter_or_special(callsign)
         cached_entry = self.routes_db.get(callsign)
 
-        # 1. Check persistent on-disk routes database
-        if cached_entry:
+        # 1. Charter Flights (8000-9999 series): Prioritize live FlightAware FAA flight plan!
+        # Static databases like adsbdb.com store old historical charter legs (e.g. SWF instead of SDF).
+        if is_charter:
+            fa_data = self._query_flightaware(callsign)
+            if fa_data:
+                orig_fa, dest_fa, airline_fa = fa_data
+                formatted = self._validate_and_format_route(orig_fa, dest_fa, action)
+                if formatted is not None:
+                    self.routes_db[callsign] = {
+                        "origin": self._clean_airport_code(orig_fa),
+                        "destination": self._clean_airport_code(dest_fa),
+                        "airline": airline_fa,
+                        "updated": int(now),
+                        "is_charter": True
+                    }
+                    self._routes_db_modified = True
+                    self._maybe_save_db()
+                    self.route_cache[cache_key] = formatted
+                    return formatted
+
+            # If FlightAware has no active flight plan, check fresh same-day charter cache (< 6 hours)
+            if cached_entry and isinstance(cached_entry, dict):
+                origin = cached_entry.get("origin") or cached_entry.get("origin_icao") or ""
+                dest = cached_entry.get("destination") or cached_entry.get("dest_icao") or ""
+                last_updated = cached_entry.get("updated", 0)
+                age = now - last_updated
+                if age < self.CHARTER_CACHE_TTL_SEC:
+                    formatted = self._validate_and_format_route(origin, dest, action)
+                    if formatted is not None:
+                        self.route_cache[cache_key] = formatted
+                        return formatted
+
+        # 2. Check persistent on-disk routes database for regular scheduled flights
+        if not is_charter and cached_entry:
             if isinstance(cached_entry, dict):
                 origin = cached_entry.get("origin") or cached_entry.get("origin_icao") or ""
                 dest = cached_entry.get("destination") or cached_entry.get("dest_icao") or ""
@@ -277,7 +331,7 @@ class MetadataResolver:
                         self._routes_db_modified = True
                         cached_entry = None
 
-        # 2. Query adsbdb.com API (uncached or stale revalidation)
+        # 3. Query adsbdb.com API (uncached or stale revalidation)
         try:
             url = f"{ADSDB_ROUTES_URL}/{callsign}"
             res = requests.get(url, headers={"User-Agent": "MSP-Runway-Tracker/1.0"}, timeout=3)

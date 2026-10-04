@@ -555,7 +555,8 @@ const PCB_LEDS = [
         async function pollServer() {
             if (!isLiveMode) return;
             try {
-                const res = await fetch('/api/runway_state');
+                const apiUrl = (window.location.protocol === 'file:') ? 'http://localhost:8080/api/runway_state' : '/api/runway_state';
+                const res = await fetch(apiUrl);
                 if (!res.ok) return;
                 const data = await res.json();
                 if (data.weather) {
@@ -565,7 +566,11 @@ const PCB_LEDS = [
                     if (data.runway_roles.landing) lastLandingRunway = data.runway_roles.landing;
                     if (data.runway_roles.departure) lastDepartureRunway = data.runway_roles.departure;
                 }
-                if (data.active_operations && data.active_operations.length > 0) {
+
+                const nowSec = Math.floor(Date.now() / 1000);
+                const isDataStale = data.timestamp && (nowSec - data.timestamp > 60);
+
+                if (!isDataStale && data.active_operations && data.active_operations.length > 0) {
                     hasHadEvent = true;
                     data.active_operations.forEach(op => recordRunwayOperation(op.runway, op.action));
                     activeFlightEvents = data.active_operations.map(op => ({
@@ -596,7 +601,9 @@ const PCB_LEDS = [
                         seg.comet_norm = 0.0;
                     }
                 }
-            } catch (e) {}
+            } catch (e) {
+                // Network or CORS failure: gracefully avoid getting stuck
+            }
         }
         setInterval(pollServer, 1500);
 
@@ -711,13 +718,11 @@ const PCB_LEDS = [
                     // Constant physical mm/s speed across gaps
                     seg.comet_norm += 0.006 * speedMultiplier;
                     if (seg.comet_norm >= 1.35) {
+                        seg.state = "IDLE";
+                        seg.comet_norm = 0.0;
                         if (!isLiveMode) {
                             // In manual trigger mode, once the rollout/climbout completes, return to IDLE!
-                            seg.state = "IDLE";
-                            seg.comet_norm = 0.0;
                             activeFlightEvents = activeFlightEvents.filter(f => f.runway !== seg.name_start && f.runway !== seg.name_end);
-                        } else {
-                            seg.comet_norm = 0.0;
                         }
                     }
 
