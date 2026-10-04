@@ -27,8 +27,10 @@ TOKEN_URL = "https://auth.opensky-network.org/auth/realms/opensky-network/protoc
 class OpenSkyAuth:
     """Manages OpenSky API authentication, OAuth2 token lifecycle, and request headers."""
 
-    def __init__(self, project_root: str = None):
+    def __init__(self, project_root: str = None, credentials_path: str = None, profile: str = None):
         self.project_root = project_root or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self.credentials_path = credentials_path
+        self.profile = (profile or os.environ.get("MSP_PROFILE", "")).strip().lower() or None
         
         self.client_id: str | None = None
         self.client_secret: str | None = None
@@ -42,52 +44,79 @@ class OpenSkyAuth:
 
         self._discover_credentials()
 
-    def _discover_credentials(self):
-        """Discovers credentials from environment variables or local JSON files."""
-        # 1. Check environment variables
-        self.client_id = os.environ.get("OPENSKY_CLIENT_ID", "").strip() or None
-        self.client_secret = os.environ.get("OPENSKY_CLIENT_SECRET", "").strip() or None
-        self.api_token = (
-            os.environ.get("OPENSKY_API_KEY", "").strip()
-            or os.environ.get("OPENSKY_TOKEN", "").strip()
-            or None
-        )
-        self.username = os.environ.get("OPENSKY_USERNAME", "").strip() or None
-        self.password = os.environ.get("OPENSKY_PASSWORD", "").strip() or None
+    def _load_from_json_file(self, path: str) -> bool:
+        """Parses credentials from a JSON file. Returns True if valid credentials loaded."""
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                cid = data.get("client_id") or data.get("clientId") or data.get("client")
+                csec = data.get("client_secret") or data.get("clientSecret") or data.get("secret")
+                tok = data.get("access_token") or data.get("token") or data.get("api_key")
+                user = data.get("username") or data.get("user")
+                pw = data.get("password") or data.get("pass")
 
-        # 2. Check JSON credential files if client_id/secret not in environment
+                if cid and csec:
+                    self.client_id = str(cid).strip()
+                    self.client_secret = str(csec).strip()
+                    return True
+                elif tok:
+                    self.api_token = str(tok).strip()
+                    return True
+                elif user and pw:
+                    self.username = str(user).strip()
+                    self.password = str(pw).strip()
+                    return True
+        except Exception:
+            pass
+        return False
+
+    def _discover_credentials(self):
+        """Discovers credentials from explicit path, environment variables, or local JSON files."""
+        # 1. Explicit credentials path
+        if self.credentials_path and os.path.isfile(self.credentials_path):
+            if self._load_from_json_file(self.credentials_path):
+                return
+
+        # 2. Check profile-specific environment variables if in office profile
+        if self.profile == "office":
+            self.client_id = os.environ.get("OPENSKY_OFFICE_CLIENT_ID", "").strip() or None
+            self.client_secret = os.environ.get("OPENSKY_OFFICE_CLIENT_SECRET", "").strip() or None
+
+        # 3. Check standard environment variables
+        if not (self.client_id and self.client_secret):
+            self.client_id = os.environ.get("OPENSKY_CLIENT_ID", "").strip() or None
+            self.client_secret = os.environ.get("OPENSKY_CLIENT_SECRET", "").strip() or None
+            self.api_token = (
+                os.environ.get("OPENSKY_API_KEY", "").strip()
+                or os.environ.get("OPENSKY_TOKEN", "").strip()
+                or None
+            )
+            self.username = os.environ.get("OPENSKY_USERNAME", "").strip() or None
+            self.password = os.environ.get("OPENSKY_PASSWORD", "").strip() or None
+
+        # 4. Check JSON credential files based on profile preference
         if not (self.client_id and self.client_secret) and not self.api_token:
-            candidate_files = [
-                os.path.join(self.project_root, "credentials.json"),
-                os.path.join(self.project_root, "opensky_credentials.json"),
-                os.path.join(self.project_root, "rpi", "credentials.json"),
-                os.path.join(self.project_root, "rpi", "data", "credentials.json"),
-            ]
+            if self.profile == "office":
+                candidate_files = [
+                    os.path.join(self.project_root, "credentials_office.json"),
+                    os.path.join(self.project_root, "office_credentials.json"),
+                    os.path.join(self.project_root, "credentials.json"),
+                    os.path.join(self.project_root, "opensky_credentials.json"),
+                ]
+            else:
+                candidate_files = [
+                    os.path.join(self.project_root, "credentials.json"),
+                    os.path.join(self.project_root, "credentials_home.json"),
+                    os.path.join(self.project_root, "opensky_credentials.json"),
+                    os.path.join(self.project_root, "credentials_office.json"),
+                    os.path.join(self.project_root, "rpi", "credentials.json"),
+                    os.path.join(self.project_root, "rpi", "data", "credentials.json"),
+                ]
+
             for path in candidate_files:
                 if os.path.isfile(path):
-                    try:
-                        with open(path, "r", encoding="utf-8") as f:
-                            data = json.load(f)
-                            # Support various JSON key structures from OpenSky downloads
-                            cid = data.get("client_id") or data.get("clientId") or data.get("client")
-                            csec = data.get("client_secret") or data.get("clientSecret") or data.get("secret")
-                            tok = data.get("access_token") or data.get("token") or data.get("api_key")
-                            user = data.get("username") or data.get("user")
-                            pw = data.get("password") or data.get("pass")
-
-                            if cid and csec:
-                                self.client_id = str(cid).strip()
-                                self.client_secret = str(csec).strip()
-                                break
-                            elif tok:
-                                self.api_token = str(tok).strip()
-                                break
-                            elif user and pw:
-                                self.username = str(user).strip()
-                                self.password = str(pw).strip()
-                                break
-                    except Exception:
-                        pass
+                    if self._load_from_json_file(path):
+                        break
 
     def get_token(self) -> str | None:
         """
@@ -149,13 +178,14 @@ class OpenSkyAuth:
 
     def get_auth_status_str(self) -> str:
         """Returns human-readable description of current authentication mode and quota."""
+        tag = f" [{self.profile.upper()}]" if self.profile else ""
         if self.client_id and self.client_secret:
             cid_masked = self.client_id[:4] + "..." + self.client_id[-2:] if len(self.client_id) > 6 else "active"
-            return f"Authenticated via OAuth2 (Client: {cid_masked}) | Quota: ~4,000 req/day"
+            return f"Authenticated via OAuth2{tag} (Client: {cid_masked}) | Quota: ~4,000 req/day"
         elif self.api_token:
-            return "Authenticated via API Token | Quota: ~4,000 req/day"
+            return f"Authenticated via API Token{tag} | Quota: ~4,000 req/day"
         elif self.username and self.password:
             user_masked = self.username[:3] + "***" if len(self.username) > 3 else "active"
-            return f"Basic Auth (User: {user_masked}) | Quota: ~4,000 req/day"
+            return f"Basic Auth{tag} (User: {user_masked}) | Quota: ~4,000 req/day"
         else:
-            return "Anonymous (No credentials) | Quota: 400 req/day"
+            return f"Anonymous{tag} (No credentials) | Quota: 400 req/day"

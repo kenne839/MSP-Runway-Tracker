@@ -42,14 +42,16 @@ PID_FILE = os.path.join(OFFICE_DIR, ".bridge.pid")
 
 
 class OfficeBridge:
-    def __init__(self, mode="ble", port=None, poll_interval=None, web_server=True, web_port=8080):
+    def __init__(self, mode="ble", port=None, poll_interval=None, web_server=True, web_port=8080, credentials=None):
         self.mode = mode
         self.port = port
         self.poll_interval = poll_interval if poll_interval is not None else OPENSKY_POLL_INTERVAL
         self.web_server = web_server
         self.web_port = web_port
 
-        self.tracker = TelemetryTracker()
+        from rpi.opensky_auth import OpenSkyAuth
+        auth = OpenSkyAuth(credentials_path=credentials, profile="office")
+        self.tracker = TelemetryTracker(auth=auth)
         self.ble_client = None
         self.serial_conn = None
         self.connected = False
@@ -479,6 +481,8 @@ def main():
                         help="Serial COM port (e.g. COM3 or /dev/ttyUSB0) if using Header J2 programmer")
     parser.add_argument("--interval", type=float, default=OPENSKY_POLL_INTERVAL,
                         help=f"OpenSky polling interval in seconds (default: {OPENSKY_POLL_INTERVAL})")
+    parser.add_argument("--credentials", type=str, default=None,
+                        help="Path to OpenSky credentials JSON file (default: auto-detects credentials_office.json)")
     parser.add_argument("--test", action="store_true",
                         help="Run test animation pattern to verify board link")
     parser.add_argument("--no-web", action="store_true",
@@ -493,7 +497,8 @@ def main():
         port=args.port,
         poll_interval=args.interval,
         web_server=not args.no_web,
-        web_port=args.web_port
+        web_port=args.web_port,
+        credentials=args.credentials
     )
 
     try:

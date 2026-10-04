@@ -92,6 +92,32 @@ class TestOpenSkyAuth(unittest.TestCase):
         self.assertEqual(result, [])
         self.assertFalse(tracker.last_fetch_success)
 
+    def test_office_profile_discovery(self):
+        """Verify office profile prioritizes credentials_office.json over credentials.json."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create both home and office credentials
+            with open(os.path.join(tmpdir, "credentials.json"), "w") as f:
+                json.dump({"clientId": "home-client", "clientSecret": "home-sec"}, f)
+            with open(os.path.join(tmpdir, "credentials_office.json"), "w") as f:
+                json.dump({"clientId": "office-client", "clientSecret": "office-sec"}, f)
+
+            auth_office = OpenSkyAuth(project_root=tmpdir, profile="office")
+            self.assertEqual(auth_office.client_id, "office-client")
+            self.assertIn("OFFICE", auth_office.get_auth_status_str())
+
+            auth_home = OpenSkyAuth(project_root=tmpdir, profile="home")
+            self.assertEqual(auth_home.client_id, "home-client")
+
+    def test_explicit_credentials_path(self):
+        """Verify explicit credentials_path parameter overrides default search."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            custom_path = os.path.join(tmpdir, "my_custom_creds.json")
+            with open(custom_path, "w") as f:
+                json.dump({"clientId": "custom-client", "clientSecret": "custom-sec"}, f)
+
+            auth = OpenSkyAuth(project_root=tmpdir, credentials_path=custom_path)
+            self.assertEqual(auth.client_id, "custom-client")
+
 
 if __name__ == "__main__":
     unittest.main()

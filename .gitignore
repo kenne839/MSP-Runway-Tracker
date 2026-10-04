@@ -31,8 +31,8 @@ __pycache__/
 # Local credentials and environment files
 .env
 *.env
-credentials.json
-opensky_credentials.json
+credentials*.json
+*credentials*.json
 
 # Local Office Bridge runtime files
 .ble_cache.json

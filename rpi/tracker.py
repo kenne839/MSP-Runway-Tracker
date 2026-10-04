@@ -152,10 +152,10 @@ class TelemetryState:
 
 class TelemetryTracker:
     """Telemetry collector and spatial reasoning engine."""
-    def __init__(self, state: TelemetryState = None):
+    def __init__(self, state: TelemetryState = None, auth: OpenSkyAuth = None, auth_profile: str = None):
         self.state = state if state is not None else TelemetryState()
         self.meta = MetadataResolver()
-        self.auth = OpenSkyAuth()
+        self.auth = auth if auth is not None else OpenSkyAuth(profile=auth_profile)
         self.running = False
         self._thread = None
         
