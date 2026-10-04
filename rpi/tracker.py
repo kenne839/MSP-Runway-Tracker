@@ -30,6 +30,7 @@ from .spatial import get_runway_match
 from .metadata import MetadataResolver
 from .weather import get_current_weather
 from .atis import get_current_datis
+from .opensky_auth import OpenSkyAuth
 
 import sys
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -154,6 +155,7 @@ class TelemetryTracker:
     def __init__(self, state: TelemetryState = None):
         self.state = state if state is not None else TelemetryState()
         self.meta = MetadataResolver()
+        self.auth = OpenSkyAuth()
         self.running = False
         self._thread = None
         
@@ -162,11 +164,15 @@ class TelemetryTracker:
         self.last_departure_runway = None
         self.active_flow_group = None
 
-        # Network outage resilience & backoff
+        # Network outage resilience & rate-limit tracking
         self.internet_online = True
         self.last_successful_poll_ts = int(time.time())
         self.consecutive_failures = 0
         self.current_poll_interval = OPENSKY_POLL_INTERVAL
+        self.opensky_lockout_until = 0.0
+
+        auth_desc = self.auth.get_auth_status_str()
+        print(f"TelemetryTracker initialized. [{auth_desc}] | Poll interval: {OPENSKY_POLL_INTERVAL}s")
 
     def start(self):
         self.running = True
@@ -198,10 +204,33 @@ class TelemetryTracker:
                 time.sleep(5.0)
 
     def fetch_opensky(self) -> list[dict]:
-        """Polls OpenSky directly and returns parsed aircraft state vectors."""
-        auth = (OPENSKY_USERNAME, OPENSKY_PASSWORD) if OPENSKY_USERNAME and OPENSKY_PASSWORD else None
+        """Polls OpenSky directly using configured credentials and returns parsed aircraft state vectors."""
+        now = time.time()
+        if now < self.opensky_lockout_until:
+            # Active rate-limit lockout period: avoid hammering OpenSky with doomed requests
+            self.last_fetch_success = False
+            return []
+
+        headers = self.auth.get_headers()
+        basic_auth = self.auth.get_basic_auth()
+
         try:
-            res = requests.get(OPENSKY_URL, params=MSP_BBOX, auth=auth, timeout=8, verify=False)
+            res = requests.get(OPENSKY_URL, params=MSP_BBOX, headers=headers, auth=basic_auth, timeout=10, verify=False)
+            if res.status_code == 429:
+                retry_sec = 300
+                try:
+                    retry_sec = int(res.headers.get("X-Rate-Limit-Retry-After-Seconds") or res.headers.get("Retry-After") or "300")
+                except Exception:
+                    pass
+                self.opensky_lockout_until = time.time() + retry_sec
+                hours = retry_sec / 3600.0
+                print(f"[{time.strftime('%X')}] ⚠️ OpenSky rate limit reached (HTTP 429). Retry in {hours:.1f}h ({retry_sec}s).")
+                if not self.auth.is_authenticated():
+                    print(f"[{time.strftime('%X')}] 💡 TIP: Add OpenSky credentials in .env or credentials.json to increase daily quota from 400 to 4,000 requests!")
+                self.last_fetch_success = False
+                self.current_poll_interval = min(float(retry_sec), 60.0)
+                return []
+
             res.raise_for_status()
             data = res.json()
             states = data.get("states") or []
@@ -227,6 +256,28 @@ class TelemetryTracker:
             self.consecutive_failures = 0
             self.current_poll_interval = OPENSKY_POLL_INTERVAL
             return parsed
+        except requests.exceptions.HTTPError as e:
+            self.consecutive_failures += 1
+            self.last_fetch_success = False
+            if hasattr(e, "response") and e.response is not None and e.response.status_code == 429:
+                retry_sec = 300
+                try:
+                    retry_sec = int(e.response.headers.get("X-Rate-Limit-Retry-After-Seconds") or e.response.headers.get("Retry-After") or "300")
+                except Exception:
+                    pass
+                self.opensky_lockout_until = time.time() + retry_sec
+                hours = retry_sec / 3600.0
+                print(f"[{time.strftime('%X')}] ⚠️ OpenSky rate limit reached (HTTP 429). Retry in {hours:.1f}h ({retry_sec}s).")
+                if not self.auth.is_authenticated():
+                    print(f"[{time.strftime('%X')}] 💡 TIP: Add OpenSky credentials in .env or credentials.json to increase daily quota to 4,000 requests.")
+                self.current_poll_interval = min(float(retry_sec), 60.0)
+                return []
+
+            if self.internet_online:
+                print(f"[{time.strftime('%X')}] OpenSky request failed ({e}). Entering backoff retry mode...")
+                self.internet_online = False
+            self.current_poll_interval = min(60.0, OPENSKY_POLL_INTERVAL * (1.5 ** min(self.consecutive_failures, 4)))
+            return []
         except Exception as e:
             self.consecutive_failures += 1
             self.last_fetch_success = False
@@ -245,15 +296,17 @@ class TelemetryTracker:
         else:
             # Preserve last known valid weather and runway roles during brief drops
             prev = self.state.get_snapshot()
+            status_label = "OpenSky (Rate Limited)" if time.time() < self.opensky_lockout_until else "OpenSky (Offline)"
             net_status = {
                 "online": False,
+                "rate_limited": time.time() < self.opensky_lockout_until,
                 "last_successful_poll": self.last_successful_poll_ts,
                 "consecutive_failures": self.consecutive_failures
             }
             self.state.update(
                 tracked_count=0,
                 active_ops=[],
-                source_name="OpenSky (Offline)",
+                source_name=status_label,
                 weather=prev.get("weather"),
                 runway_roles=prev.get("runway_roles"),
                 network_status=net_status

@@ -54,6 +54,19 @@ try:
 except ImportError:
     get_current_datis = lambda: None
 
+try:
+    from rpi.opensky_auth import OpenSkyAuth
+    opensky_auth = OpenSkyAuth()
+except ImportError:
+    class DummyAuth:
+        def get_headers(self): return {}
+        def get_basic_auth(self): return None
+        def is_authenticated(self): return False
+        def get_auth_status_str(self): return "Anonymous | Quota: 400 req/day"
+    opensky_auth = DummyAuth()
+
+OPENSKY_LOCKOUT_UNTIL = 0.0
+
 LAST_LANDING_RUNWAY = None
 LAST_DEPARTURE_RUNWAY = None
 ACTIVE_FLOW_GROUP = None
@@ -663,15 +676,56 @@ def fetch_msp_traffic():
     Polls OpenSky Network ADS-B API, applies kinematic and spatial filters,
     and updates the active runway state.
     """
-    print(f"\n[{time.strftime('%X')}] Fetching MSP traffic...")
+    global OPENSKY_LOCKOUT_UNTIL
+    now = time.time()
+    if now < OPENSKY_LOCKOUT_UNTIL:
+        remaining = int(OPENSKY_LOCKOUT_UNTIL - now)
+        hours = remaining / 3600.0
+        print(f"\n[{time.strftime('%X')}] ⚠️ OpenSky rate-limit lockout active ({hours:.1f}h remaining). Waiting for quota reset...")
+        write_state("NONE", "IDLE", "", "NONE", "NONE")
+        return
+
+    print(f"\n[{time.strftime('%X')}] Fetching MSP traffic from OpenSky...")
     url = 'https://opensky-network.org/api/states/all'
+    headers = opensky_auth.get_headers()
+    auth = opensky_auth.get_basic_auth()
     
     try:
-        response = requests.get(url, params=MSP_BBOX, timeout=10, verify=False)
+        response = requests.get(url, params=MSP_BBOX, headers=headers, auth=auth, timeout=10, verify=False)
+        if response.status_code == 429:
+            retry_sec = 300
+            try:
+                retry_sec = int(response.headers.get("X-Rate-Limit-Retry-After-Seconds") or response.headers.get("Retry-After") or "300")
+            except Exception:
+                pass
+            OPENSKY_LOCKOUT_UNTIL = time.time() + retry_sec
+            hours = retry_sec / 3600.0
+            print(f"  -> ⚠️ OpenSky API rate limit reached (HTTP 429). Retry in {hours:.1f}h ({retry_sec}s).")
+            if not opensky_auth.is_authenticated():
+                print("  -> 💡 TIP: Add OpenSky credentials in .env or credentials.json to increase daily quota from 400 to 4,000 requests!")
+            write_state("NONE", "IDLE", "", "NONE", "NONE")
+            return
+
         response.raise_for_status()
         data = response.json()
+    except requests.exceptions.HTTPError as e:
+        if hasattr(e, "response") and e.response is not None and e.response.status_code == 429:
+            retry_sec = 300
+            try:
+                retry_sec = int(e.response.headers.get("X-Rate-Limit-Retry-After-Seconds") or e.response.headers.get("Retry-After") or "300")
+            except Exception:
+                pass
+            OPENSKY_LOCKOUT_UNTIL = time.time() + retry_sec
+            hours = retry_sec / 3600.0
+            print(f"  -> ⚠️ OpenSky API rate limit reached (HTTP 429). Retry in {hours:.1f}h ({retry_sec}s).")
+            if not opensky_auth.is_authenticated():
+                print("  -> 💡 TIP: Add OpenSky credentials in .env or credentials.json to increase daily quota from 400 to 4,000 requests!")
+            write_state("NONE", "IDLE", "", "NONE", "NONE")
+            return
+        print(f"  -> OpenSky API request failed: {e}")
+        return
     except Exception as e:
-        print(f"  -> API Request failed: {e}")
+        print(f"  -> OpenSky API request failed: {e}")
         return
 
     states = data.get('states')
@@ -749,7 +803,18 @@ def fetch_msp_traffic():
         write_state("NONE", "IDLE", "", "NONE", "NONE", tracked_count=len(states))
 
 if __name__ == "__main__":
-    print("Starting MSP Runway Tracker. Press Ctrl+C to stop.")
+    poll_sec = float(os.environ.get("MSP_POLL_INTERVAL", "30.0"))
+    auth_desc = opensky_auth.get_auth_status_str()
+    print("==================================================")
+    print("    KMSP RUNWAY TRAFFIC MONITOR & TELEMETRY       ")
+    print("==================================================")
+    print(f"Auth Status   : {auth_desc}")
+    print(f"Poll Interval : {poll_sec}s")
+    if not opensky_auth.is_authenticated():
+        print("Notice        : Anonymous mode has a 400 req/day limit.")
+        print("                To enable 4,000 req/day, add OpenSky credentials in .env")
+    print("--------------------------------------------------")
+    print("Starting tracker loop. Press Ctrl+C to stop.")
     while True:
         fetch_msp_traffic()
-        time.sleep(30)
+        time.sleep(poll_sec)

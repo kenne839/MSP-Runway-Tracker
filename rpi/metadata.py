@@ -17,6 +17,7 @@ from .config import (
     ADSDB_ROUTES_URL,
     ROUTE_CACHE_TTL_SEC
 )
+from .opensky_auth import OpenSkyAuth
 
 class MetadataResolver:
     def __init__(self):
@@ -26,6 +27,7 @@ class MetadataResolver:
         self.routes_db = self._load_json(ROUTES_CACHE_FILE, "routes cache")
         self.route_cache: dict[str, str] = {}
         self.unknown_hex_cache: set[str] = set()
+        self.auth = OpenSkyAuth()
         self._db_modified = False
         self._routes_db_modified = False
         self._last_db_save = time.time()
@@ -321,7 +323,13 @@ class MetadataResolver:
         # 4. Fallback: Query OpenSky routes endpoint
         try:
             url = f"{OPENSKY_ROUTES_URL}?callsign={callsign}"
-            res = requests.get(url, timeout=3, verify=False)
+            res = requests.get(
+                url,
+                headers=self.auth.get_headers(),
+                auth=self.auth.get_basic_auth(),
+                timeout=3,
+                verify=False
+            )
             if res.status_code == 200:
                 data = res.json()
                 route = data.get("route", [])

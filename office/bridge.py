@@ -26,7 +26,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from rpi.config import MSP_BBOX, OPENSKY_URL, OPENSKY_USERNAME, OPENSKY_PASSWORD
+from rpi.config import MSP_BBOX, OPENSKY_URL, OPENSKY_POLL_INTERVAL
 from rpi.tracker import TelemetryTracker
 from rpi.server import make_handler
 
@@ -42,10 +42,10 @@ PID_FILE = os.path.join(OFFICE_DIR, ".bridge.pid")
 
 
 class OfficeBridge:
-    def __init__(self, mode="ble", port=None, poll_interval=15.0, web_server=True, web_port=8080):
+    def __init__(self, mode="ble", port=None, poll_interval=None, web_server=True, web_port=8080):
         self.mode = mode
         self.port = port
-        self.poll_interval = poll_interval
+        self.poll_interval = poll_interval if poll_interval is not None else OPENSKY_POLL_INTERVAL
         self.web_server = web_server
         self.web_port = web_port
 
@@ -477,8 +477,8 @@ def main():
                         help="Transport mode: 'ble' (default, Bluetooth Low Energy wireless) or 'serial' (via Header J2 UART programmer)")
     parser.add_argument("--port", type=str, default=None,
                         help="Serial COM port (e.g. COM3 or /dev/ttyUSB0) if using Header J2 programmer")
-    parser.add_argument("--interval", type=float, default=15.0,
-                        help="OpenSky polling interval in seconds (default: 15.0)")
+    parser.add_argument("--interval", type=float, default=OPENSKY_POLL_INTERVAL,
+                        help=f"OpenSky polling interval in seconds (default: {OPENSKY_POLL_INTERVAL})")
     parser.add_argument("--test", action="store_true",
                         help="Run test animation pattern to verify board link")
     parser.add_argument("--no-web", action="store_true",

@@ -4,6 +4,33 @@ Configuration and constants for the MSP Runway Tracker Raspberry Pi daemon.
 
 import os
 
+def _load_env_file():
+    """Lightweight .env loader without third-party dependencies."""
+    base_dirs = [
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),  # project root
+        os.path.dirname(os.path.abspath(__file__)),                    # rpi/
+        os.getcwd()                                                    # current working dir
+    ]
+    for b in base_dirs:
+        env_path = os.path.join(b, ".env")
+        if os.path.isfile(env_path):
+            try:
+                with open(env_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith("#") or "=" not in line:
+                            continue
+                        k, v = line.split("=", 1)
+                        k = k.strip()
+                        v = v.strip().strip("'\"")
+                        if k and k not in os.environ:
+                            os.environ[k] = v
+                break
+            except Exception:
+                pass
+
+_load_env_file()
+
 # ==============================================================================
 # GEOGRAPHICAL BOUNDING BOX & COORDINATE SYSTEM
 # ==============================================================================
@@ -91,7 +118,10 @@ DATA_SOURCE = os.environ.get("MSP_DATA_SOURCE", "opensky")
 # OpenSky API Configuration
 OPENSKY_URL = "https://opensky-network.org/api/states/all"
 OPENSKY_ROUTES_URL = "https://opensky-network.org/api/routes"
-OPENSKY_POLL_INTERVAL = float(os.environ.get("MSP_POLL_INTERVAL", "10.0")) # seconds
+# Default polling interval: 30.0 seconds
+# - Free registered account (4,000 requests/day): 86,400s / 30s = 2,880 req/day (well within limit 24/7).
+# - Can be customized via MSP_POLL_INTERVAL in .env or environment.
+OPENSKY_POLL_INTERVAL = float(os.environ.get("MSP_POLL_INTERVAL", "30.0")) # seconds
 
 # ADS-B DB Routes Configuration (David Taylor / Planebase flight routes)
 ADSDB_ROUTES_URL = "https://api.adsbdb.com/v0/callsign"
@@ -102,7 +132,10 @@ ROUTE_CACHE_TTL_SEC = ROUTE_CACHE_TTL_DAYS * 86400  # 14 days = 1,209,600s
 DUMP1090_URL = os.environ.get("MSP_DUMP1090_URL", "http://localhost:8080/data/aircraft.json")
 DUMP1090_POLL_INTERVAL = 1.0  # seconds
 
-# Optional OpenSky Credentials for higher rate limits
+# OpenSky API Credentials (OAuth2 API Client, Bearer Token, or legacy credentials)
+OPENSKY_CLIENT_ID = os.environ.get("OPENSKY_CLIENT_ID", "")
+OPENSKY_CLIENT_SECRET = os.environ.get("OPENSKY_CLIENT_SECRET", "")
+OPENSKY_API_KEY = os.environ.get("OPENSKY_API_KEY", "") or os.environ.get("OPENSKY_TOKEN", "")
 OPENSKY_USERNAME = os.environ.get("OPENSKY_USERNAME", "")
 OPENSKY_PASSWORD = os.environ.get("OPENSKY_PASSWORD", "")
 
