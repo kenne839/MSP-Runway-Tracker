@@ -42,12 +42,12 @@ PID_FILE = os.path.join(OFFICE_DIR, ".bridge.pid")
 
 
 class OfficeBridge:
-    def __init__(self, mode="ble", port=None, poll_interval=None, web_server=True, web_port=8080, credentials=None):
+    def __init__(self, mode="ble", port=None, poll_interval=None, web_server=True, web_port=None, credentials=None):
         self.mode = mode
         self.port = port
         self.poll_interval = poll_interval if poll_interval is not None else OPENSKY_POLL_INTERVAL
         self.web_server = web_server
-        self.web_port = web_port
+        self.web_port = web_port if web_port is not None else int(os.environ.get("OFFICE_WEB_PORT", 18080))
 
         from rpi.opensky_auth import OpenSkyAuth
         auth = OpenSkyAuth(credentials_path=credentials, profile="office")
@@ -485,10 +485,9 @@ def main():
                         help="Path to OpenSky credentials JSON file (default: auto-detects credentials_office.json)")
     parser.add_argument("--test", action="store_true",
                         help="Run test animation pattern to verify board link")
-    parser.add_argument("--no-web", action="store_true",
-                        help="Disable embedded web server dashboard")
-    parser.add_argument("--web-port", type=int, default=8080,
-                        help="Embedded web server dashboard port (default: 8080)")
+    default_port = int(os.environ.get("OFFICE_WEB_PORT", 18080))
+    parser.add_argument("--web-port", type=int, default=default_port,
+                        help=f"Embedded web server dashboard port (default: {default_port})")
 
     args = parser.parse_args()
 
