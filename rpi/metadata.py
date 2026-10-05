@@ -332,34 +332,59 @@ class MetadataResolver:
                         self.route_cache[cache_key] = formatted
                         return formatted
 
-        # 2. Check persistent on-disk routes database for regular scheduled flights
+        # 2. Check persistent on-disk routes database for verified flights
         if not is_charter and cached_entry:
             if isinstance(cached_entry, dict):
                 origin = cached_entry.get("origin") or cached_entry.get("origin_icao") or ""
                 dest = cached_entry.get("destination") or cached_entry.get("dest_icao") or ""
                 last_updated = cached_entry.get("updated", 0)
                 age = now - last_updated
+                is_fa_verified = (cached_entry.get("source") == "flightaware")
 
                 formatted = self._validate_and_format_route(origin, dest, action, allow_turnaround=False)
                 if formatted is None:
                     # Direction mismatch (e.g. cached arrival leg SAV->MSP for a departure).
                     # Bypass cache so live FlightAware flight plan is queried!
                     cached_entry = None
-                elif age < ROUTE_CACHE_TTL_SEC:
+                elif is_fa_verified and age < ROUTE_CACHE_TTL_SEC:
                     self.route_cache[cache_key] = formatted
                     return formatted
 
             elif isinstance(cached_entry, str) and cached_entry and cached_entry != "Unknown":
-                if " -> " in cached_entry:
-                    parts = cached_entry.split(" -> ")
-                    formatted = self._validate_and_format_route(parts[0], parts[1], action, allow_turnaround=False)
-                    if formatted is not None:
-                        self.route_cache[cache_key] = formatted
-                        return formatted
-                    else:
-                        cached_entry = None
+                cached_entry = None
 
-        # 3. Query adsbdb.com API (uncached or stale revalidation)
+        # 3. Query FlightAware LIVE REAL-TIME FAA flight plan first!
+        # FlightAware queries the active filed FAA radar flight plan (e.g. DAL2295 MSP->FAR, DAL2594 PHL->MSP, DAL1711 MSP->GRR).
+        # Static databases like adsbdb.com frequently have outdated schedules from previous seasons (e.g. DAL2295 MSP->SFO).
+        fa_data = self._query_flightaware(callsign, action)
+        if fa_data:
+            orig_fa, dest_fa, airline_fa = fa_data
+            formatted = self._validate_and_format_route(orig_fa, dest_fa, action, allow_turnaround=False)
+            if formatted is not None:
+                self.routes_db[callsign] = {
+                    "origin": self._clean_airport_code(orig_fa),
+                    "destination": self._clean_airport_code(dest_fa),
+                    "airline": airline_fa,
+                    "updated": int(now),
+                    "source": "flightaware"
+                }
+                self._routes_db_modified = True
+                self._maybe_save_db()
+                self.route_cache[cache_key] = formatted
+                return formatted
+
+        # 4. Fallback: If FlightAware had no active flight, check existing cached entry if fresh
+        if cached_entry and isinstance(cached_entry, dict):
+            origin = cached_entry.get("origin") or cached_entry.get("origin_icao") or ""
+            dest = cached_entry.get("destination") or cached_entry.get("dest_icao") or ""
+            last_updated = cached_entry.get("updated", 0)
+            age = now - last_updated
+            formatted = self._validate_and_format_route(origin, dest, action, allow_turnaround=False)
+            if formatted is not None and age < ROUTE_CACHE_TTL_SEC:
+                self.route_cache[cache_key] = formatted
+                return formatted
+
+        # 5. Fallback: Query adsbdb.com API (secondary fallback if FlightAware has no live data)
         try:
             url = f"{ADSDB_ROUTES_URL}/{callsign}"
             res = requests.get(url, headers={"User-Agent": "MSP-Runway-Tracker/1.0"}, timeout=3)
@@ -376,7 +401,8 @@ class MetadataResolver:
                                 "origin": self._clean_airport_code(orig_iata),
                                 "destination": self._clean_airport_code(dest_iata),
                                 "airline": fr.get("airline", {}).get("name", ""),
-                                "updated": int(now)
+                                "updated": int(now),
+                                "source": "adsbdb"
                             }
                             self._routes_db_modified = True
                             self._maybe_save_db()
@@ -384,23 +410,6 @@ class MetadataResolver:
                             return formatted
         except Exception:
             pass
-
-        # 4. FlightAware live flight plan fallback scraper (e.g. DAL2225 MCO->MSP or DAL1711 MSP->GRR)
-        fa_data = self._query_flightaware(callsign, action)
-        if fa_data:
-            orig_fa, dest_fa, airline_fa = fa_data
-            formatted = self._validate_and_format_route(orig_fa, dest_fa, action, allow_turnaround=False)
-            if formatted is not None:
-                self.routes_db[callsign] = {
-                    "origin": self._clean_airport_code(orig_fa),
-                    "destination": self._clean_airport_code(dest_fa),
-                    "airline": airline_fa,
-                    "updated": int(now)
-                }
-                self._routes_db_modified = True
-                self._maybe_save_db()
-                self.route_cache[cache_key] = formatted
-                return formatted
 
         # 4. Fallback: Query OpenSky routes endpoint
         try:

@@ -854,14 +854,15 @@
   "DAL2225": {
     "origin": "MCO",
     "destination": "MSP",
-    "airline": "Delta Air Lines",
-    "updated": 1791086433
+    "airline": "Delta Air Lines, Inc.",
+    "updated": 1791172980,
+    "source": "flightaware"
   },
   "UAL8172": {
     "origin": "IAH",
     "destination": "MSP",
     "airline": "United Airlines",
-    "updated": 1790048837
+    "updated": 1791086433
   },
   "SWA3175": {
     "origin": "BNA",
@@ -885,7 +886,7 @@
     "origin": "SDF",
     "destination": "MSP",
     "airline": "MN Airlines D/B/A Sun Country Airlines, Inc.",
-    "updated": 1791172039,
+    "updated": 1791173038,
     "is_charter": true
   },
   "UAL667": {
@@ -934,7 +935,8 @@
     "origin": "MSP",
     "destination": "GRR",
     "airline": "Delta Air Lines, Inc.",
-    "updated": 1791171911
+    "updated": 1791172981,
+    "source": "flightaware"
   },
   "JIA5390": {
     "origin": "DCA",
@@ -971,5 +973,31 @@
     "destination": "MSP",
     "airline": "United Air Lines Inc.",
     "updated": 1791171825
+  },
+  "DAL1599": {
+    "origin": "MSP",
+    "destination": "MSN",
+    "airline": "Delta Air Lines, Inc.",
+    "updated": 1791171980
+  },
+  "DAL1657": {
+    "origin": "MSP",
+    "destination": "MCI",
+    "airline": "Delta Air Lines, Inc.",
+    "updated": 1791172767
+  },
+  "DAL2295": {
+    "origin": "MSP",
+    "destination": "FAR",
+    "airline": "Delta Air Lines, Inc.",
+    "updated": 1791172915,
+    "source": "flightaware"
+  },
+  "DAL2594": {
+    "origin": "PHL",
+    "destination": "MSP",
+    "airline": "Delta Air Lines, Inc.",
+    "updated": 1791172915,
+    "source": "flightaware"
   }
 }

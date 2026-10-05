@@ -74,12 +74,22 @@ class TestRouteResolution(unittest.TestCase):
         self.assertEqual(res, "From SDF")
 
     def test_dal1711_resolution(self):
-        """Verify DAL1711 resolves to MSP -> GRR (Grand Rapids), rejecting stale SAV -> MSP turnaround."""
-        # Even if routes_db had stale SAV -> MSP inbound, taking off must resolve to GRR
+        """Verify DAL1711 resolves to MSP -> GRR (Grand Rapids), rejecting stale adsbdb SAV."""
         self.resolver.route_cache.pop("DAL1711:TAKEOFF", None)
-        self.resolver.route_cache.pop("DAL1711:TAKING OFF", None)
         res = self.resolver.resolve_route("DAL1711", "TAKEOFF")
         self.assertEqual(res, "To GRR")
+
+    def test_dal2295_resolution(self):
+        """Verify DAL2295 resolves to MSP -> FAR (Fargo), rejecting stale adsbdb SFO."""
+        self.resolver.route_cache.pop("DAL2295:TAKEOFF", None)
+        res = self.resolver.resolve_route("DAL2295", "TAKEOFF")
+        self.assertEqual(res, "To FAR")
+
+    def test_dal2594_resolution(self):
+        """Verify DAL2594 resolves to PHL -> MSP (Philadelphia), rejecting stale adsbdb SFO."""
+        self.resolver.route_cache.pop("DAL2594:LANDING", None)
+        res = self.resolver.resolve_route("DAL2594", "LANDING")
+        self.assertEqual(res, "From PHL")
 
     def test_is_charter_detection(self):
         """Verify charter / special section (8000+ series) callsign identification."""
@@ -111,6 +121,12 @@ class TestRouteResolution(unittest.TestCase):
         self.assertEqual(r_ual8172, "From IAH")
         r_scx8457 = get_flight_route("SCX8457", "LANDING")
         self.assertEqual(r_scx8457, "From SDF")
+        r_dal1711 = get_flight_route("DAL1711", "TAKING OFF")
+        self.assertEqual(r_dal1711, "To GRR")
+        r_dal2295 = get_flight_route("DAL2295", "TAKING OFF")
+        self.assertEqual(r_dal2295, "To FAR")
+        r_dal2594 = get_flight_route("DAL2594", "LANDING")
+        self.assertEqual(r_dal2594, "From PHL")
 
     def test_ttl_stale_revalidation(self):
         """Verify entries older than 14 days are revalidated and updated."""
