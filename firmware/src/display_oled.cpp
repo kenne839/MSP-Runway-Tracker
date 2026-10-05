@@ -24,6 +24,7 @@ void initDisplay() {
     if (display.begin(SSD1306_SWITCHCAPVCC, OLED_I2C_ADDR)) {
         display_initialized = true;
         display.clearDisplay();
+        display.setTextWrap(false); // Prevent long lines from wrapping and shifting lower rows
         
         // Yellow Header (y=0..15)
         display.setTextColor(SSD1306_WHITE);
@@ -105,7 +106,8 @@ void renderDisplayLoop() {
     if (!display_initialized) return;
 
     uint32_t now = millis();
-    bool is_stale = has_received_initial_data && (now - last_telemetry_rx_time > 15000);
+    // Allow up to 65 seconds (two 30s OpenSky poll cycles + buffer) before declaring link lost
+    bool is_stale = has_received_initial_data && (now - last_telemetry_rx_time > 65000);
 
     if (is_stale) {
         // Expire active flights so old landing/takeoff events are not displayed
@@ -119,6 +121,7 @@ void renderDisplayLoop() {
     }
 
     display.clearDisplay();
+    display.setTextWrap(false);
 
     if (current_data.flight_count > 0 && !is_stale) {
         const FlightEvent& f = current_data.flights[current_flight_idx];
@@ -297,18 +300,24 @@ void renderDisplayLoop() {
             display.println(F("Wind: Polling METAR..."));
         }
 
-        // Row 3 (y = 40): Pressure & Condition (e.g. Baro 30.06\" Broken)
+        // Row 3 (y = 40): Pressure & Condition (e.g. 30.24" | Few)
         display.setCursor(0, 40);
         if (current_data.weather.valid) {
-            display.print(F("Baro "));
             char p_buf[12];
             strncpy(p_buf, current_data.weather.pressure, sizeof(p_buf) - 1);
             p_buf[sizeof(p_buf) - 1] = '\0';
             char* inhg = strstr(p_buf, " inHg");
             if (inhg) *inhg = '\0';
             display.print(p_buf);
-            display.print(F("\" "));
-            display.println(current_data.weather.condition);
+            display.print(F("\" | "));
+
+            // Compact condition labels so they easily fit 128px width
+            const char* cond = current_data.weather.condition;
+            if (strncmp(cond, "Few Clouds", 10) == 0) cond = "Few";
+            else if (strncmp(cond, "Scattered Clouds", 16) == 0) cond = "Sct";
+            else if (strncmp(cond, "Broken Clouds", 13) == 0) cond = "Broken";
+            else if (strncmp(cond, "Clear Skies", 11) == 0) cond = "Clear";
+            display.println(cond);
         } else {
             display.print(F("Airspace: "));
             display.print(current_data.tracked_count);

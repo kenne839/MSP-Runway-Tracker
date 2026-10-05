@@ -470,7 +470,17 @@ class OfficeBridge:
             except Exception as e:
                 print(f"[\033[91mPOLL ERROR\033[0m] {e}")
 
-            await asyncio.sleep(self.poll_interval)
+            # Sleep until next poll interval, but send heartbeat refresh every 10s to keep BLE link fresh
+            elapsed = 0.0
+            while elapsed < self.poll_interval:
+                sleep_slice = min(10.0, self.poll_interval - elapsed)
+                await asyncio.sleep(sleep_slice)
+                elapsed += sleep_slice
+                if elapsed < self.poll_interval and self.connected:
+                    try:
+                        await self.transmit_payload(self.tracker.get_state_dict())
+                    except Exception:
+                        pass
 
 
 def main():

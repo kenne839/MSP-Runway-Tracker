@@ -50,24 +50,46 @@ bool hasHadEventOccurred() {
     return has_had_event;
 }
 
+#if defined(BOARD_MODE_DEVKIT)
+static void setDevKitRgb(uint8_t r, uint8_t g, uint8_t b) {
+    // Drive both GPIO 48 (DevKitC-1 v1.0) and GPIO 38 (DevKitC-1 v1.1 / clones)
+    // using native ESP32-S3 hardware WS2812 pulse stream
+    neopixelWrite(48, r, g, b);
+    neopixelWrite(38, r, g, b);
+#ifdef RGB_BUILTIN
+    neopixelWrite(RGB_BUILTIN, r, g, b);
+#endif
+
+    leds[0] = CRGB(r, g, b);
+    FastLED.show();
+}
+#endif
+
 void initLeds() {
+#if defined(BOARD_MODE_DEVKIT)
+    // Enable RGB power-gate pin if present on this board variant
+    pinMode(47, OUTPUT);
+    digitalWrite(47, HIGH);
+
+    FastLED.addLeds<WS2812B, PIN_LED_DATA, GRB>(leds, NUM_LEDS);
+    FastLED.setBrightness(MAX_LED_BRIGHTNESS);
+
+    // Immediately clear uninitialized power-on white glow
+    setDevKitRgb(0, 0, 0);
+    delay(50);
+
+    // Quick POST startup color sequence: Green -> Orange -> Blue -> Off
+    setDevKitRgb(0, 180, 0);       // Green
+    delay(250);
+    setDevKitRgb(255, 120, 0);     // Orange (Landing preview)
+    delay(250);
+    setDevKitRgb(0, 100, 255);     // Blue (Takeoff preview)
+    delay(250);
+    setDevKitRgb(0, 0, 0);         // Off
+#else
     FastLED.addLeds<WS2812B, PIN_LED_DATA, GRB>(leds, NUM_LEDS);
     FastLED.setBrightness(MAX_LED_BRIGHTNESS);
     FastLED.clear();
-#if defined(BOARD_MODE_DEVKIT)
-    // Quick startup color cycle to verify RGB LED works: Green -> Orange -> Blue -> Off
-    leds[0] = CRGB::Green;
-    FastLED.show();
-    delay(200);
-    leds[0] = CRGB(255, 120, 0); // Orange (Landing preview)
-    FastLED.show();
-    delay(200);
-    leds[0] = CRGB(0, 100, 255); // Blue (Takeoff preview)
-    FastLED.show();
-    delay(200);
-    leds[0] = CRGB::Black;
-    FastLED.show();
-#else
     FastLED.show();
 
     // Startup sweep across all 4 runways
@@ -211,21 +233,20 @@ void renderRunwayAnimations() {
 
     if (active_op == RW_STATE_LANDING) {
         // Landing event: Orange / Amber
-        leds[0] = CRGB(255, 120, 0);
+        setDevKitRgb(255, 120, 0);
     } else if (active_op == RW_STATE_TAKEOFF) {
         // Takeoff event: Blue
-        leds[0] = CRGB(0, 100, 255);
+        setDevKitRgb(0, 100, 255);
     } else {
         // Idle mode: gentle amber breathing pulse if traffic occurred, else dim standby
         if (has_had_event) {
             float breath = (sin(now / 500.0f) + 1.0f) * 0.5f; // 0.0 to 1.0
             uint8_t br = (uint8_t)(breath * 20.0f) + 2;
-            leds[0] = CRGB(br, (br * 6) / 10, 0); // Warm idle amber breathing
+            setDevKitRgb(br, (br * 6) / 10, 0); // Warm idle amber breathing
         } else {
-            leds[0] = CRGB(2, 6, 10); // Dim standby indicator
+            setDevKitRgb(0, 2, 8); // Dim standby indicator
         }
     }
-    FastLED.show();
     return;
 #else
     FastLED.clear();
@@ -351,8 +372,15 @@ void renderRunwayAnimations() {
 }
 
 void showConnectionStatusLed(bool connected) {
+#if defined(BOARD_MODE_DEVKIT)
+    if (!connected) {
+        bool blink = (millis() % 1000 < 500);
+        setDevKitRgb(blink ? 120 : 0, 0, 0);
+    }
+#else
     if (!connected) {
         leds[0] = (millis() % 1000 < 500) ? CRGB(180, 0, 0) : CRGB::Black;
         FastLED.show();
     }
+#endif
 }
