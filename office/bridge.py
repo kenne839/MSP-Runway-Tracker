@@ -488,6 +488,8 @@ def main():
     default_port = int(os.environ.get("OFFICE_WEB_PORT", 18080))
     parser.add_argument("--web-port", type=int, default=default_port,
                         help=f"Embedded web server dashboard port (default: {default_port})")
+    parser.add_argument("--no-web", action="store_true",
+                        help="Disable the embedded web dashboard")
 
     args = parser.parse_args()
 
