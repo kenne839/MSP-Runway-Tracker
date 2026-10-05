@@ -29,6 +29,36 @@ static void printFitted(const char* str, uint8_t max_chars = 21) {
     }
 }
 
+// Format clean flight label: strips redundant "Airlines" / "Air Lines" so 4-digit flight numbers never cut off
+static void formatFlightLabel(const char* raw, char* out_buf, size_t out_len) {
+    if (!raw || !out_buf || out_len == 0) return;
+    strncpy(out_buf, raw, out_len - 1);
+    out_buf[out_len - 1] = '\0';
+
+    // Replace verbose " Air Lines " or " Airlines " or " Airways " with single space
+    char* found = strstr(out_buf, " Air Lines ");
+    if (found) {
+        char temp[32];
+        int prefix_len = found - out_buf;
+        snprintf(temp, sizeof(temp), "%.*s %s", prefix_len, out_buf, found + 11);
+        strncpy(out_buf, temp, out_len - 1);
+    }
+    found = strstr(out_buf, " Airlines ");
+    if (found) {
+        char temp[32];
+        int prefix_len = found - out_buf;
+        snprintf(temp, sizeof(temp), "%.*s %s", prefix_len, out_buf, found + 10);
+        strncpy(out_buf, temp, out_len - 1);
+    }
+    found = strstr(out_buf, " Airways ");
+    if (found) {
+        char temp[32];
+        int prefix_len = found - out_buf;
+        snprintf(temp, sizeof(temp), "%.*s %s", prefix_len, out_buf, found + 9);
+        strncpy(out_buf, temp, out_len - 1);
+    }
+}
+
 void initDisplay() {
     Wire.begin(PIN_OLED_SDA, PIN_OLED_SCL);
     Wire.setClock(400000); // 400kHz Fast I2C (4x faster, frees CPU for smooth LED animations)
@@ -172,10 +202,12 @@ void renderDisplayLoop() {
         // =====================================================================
         display.setTextColor(SSD1306_WHITE); // Lights up physical blue pixels
         
-        // Callsign / Airline (Row 1) - bounded to 21 chars max
+        // Callsign / Airline (Row 1) - formatted & bounded to 21 chars max
         display.setCursor(0, 19);
         display.setTextSize(1);
-        printFitted(f.flight_label, 21);
+        char label_buf[32];
+        formatFlightLabel(f.flight_label, label_buf, sizeof(label_buf));
+        printFitted(label_buf, 21);
 
         // Aircraft Type (Row 2) - bounded to 21 chars max
         display.setCursor(0, 30);

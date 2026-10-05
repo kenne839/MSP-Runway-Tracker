@@ -324,7 +324,7 @@ class OfficeBridge:
                         "runway": "30R",
                         "action": "LANDING",
                         "callsign": "DAL793",
-                        "flight_label": "Delta Air Lines 793",
+                        "flight_label": "Delta 793",
                         "aircraft_type": "Boeing 737-900 (B738)",
                         "route": "From KDEN"
                     }],
@@ -340,7 +340,7 @@ class OfficeBridge:
                             "runway": "30R",
                             "action": "LANDING",
                             "callsign": "DAL793",
-                            "flight_label": "Delta Air Lines 793",
+                            "flight_label": "Delta 793",
                             "aircraft_type": "Boeing 737-900 (B738)",
                             "route": "From KDEN"
                         },
@@ -364,7 +364,7 @@ class OfficeBridge:
                         "runway": "4",
                         "action": "TAKEOFF",
                         "callsign": "DAL2901",
-                        "flight_label": "Delta Air Lines 2901",
+                        "flight_label": "Delta 2901",
                         "aircraft_type": "Airbus A220-300 (BCS3)",
                         "route": "To KBOS"
                     }],
