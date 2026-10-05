@@ -54,6 +54,20 @@ void initLeds() {
     FastLED.addLeds<WS2812B, PIN_LED_DATA, GRB>(leds, NUM_LEDS);
     FastLED.setBrightness(MAX_LED_BRIGHTNESS);
     FastLED.clear();
+#if defined(BOARD_MODE_DEVKIT)
+    // Quick startup color cycle to verify RGB LED works: Green -> Orange -> Blue -> Off
+    leds[0] = CRGB::Green;
+    FastLED.show();
+    delay(200);
+    leds[0] = CRGB(255, 120, 0); // Orange (Landing preview)
+    FastLED.show();
+    delay(200);
+    leds[0] = CRGB(0, 100, 255); // Blue (Takeoff preview)
+    FastLED.show();
+    delay(200);
+    leds[0] = CRGB::Black;
+    FastLED.show();
+#else
     FastLED.show();
 
     // Startup sweep across all 4 runways
@@ -64,6 +78,7 @@ void initLeds() {
         leds[i] = CRGB::Black;
     }
     FastLED.show();
+#endif
 }
 
 void resetAllRunwaysToIdle() {
@@ -181,6 +196,38 @@ void renderRunwayAnimations() {
     }
     last_frame_time = now;
 
+#if defined(BOARD_MODE_DEVKIT)
+    // DevKit Test Mode:
+    // User requested: Single onboard RGB LED indicates landing (Orange) or takeoff (Blue)
+    RunwayOpState active_op = RW_STATE_IDLE;
+    for (int r = 0; r < 4; r++) {
+        if (runways[r].state == RW_STATE_LANDING) {
+            active_op = RW_STATE_LANDING;
+            break;
+        } else if (runways[r].state == RW_STATE_TAKEOFF) {
+            active_op = RW_STATE_TAKEOFF;
+        }
+    }
+
+    if (active_op == RW_STATE_LANDING) {
+        // Landing event: Orange / Amber
+        leds[0] = CRGB(255, 120, 0);
+    } else if (active_op == RW_STATE_TAKEOFF) {
+        // Takeoff event: Blue
+        leds[0] = CRGB(0, 100, 255);
+    } else {
+        // Idle mode: gentle amber breathing pulse if traffic occurred, else dim standby
+        if (has_had_event) {
+            float breath = (sin(now / 500.0f) + 1.0f) * 0.5f; // 0.0 to 1.0
+            uint8_t br = (uint8_t)(breath * 20.0f) + 2;
+            leds[0] = CRGB(br, (br * 6) / 10, 0); // Warm idle amber breathing
+        } else {
+            leds[0] = CRGB(2, 6, 10); // Dim standby indicator
+        }
+    }
+    FastLED.show();
+    return;
+#else
     FastLED.clear();
 
     // Check if any flight is actively operating
@@ -300,6 +347,7 @@ void renderRunwayAnimations() {
     }
 
     FastLED.show();
+#endif
 }
 
 void showConnectionStatusLed(bool connected) {

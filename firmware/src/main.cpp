@@ -18,7 +18,12 @@ void setup() {
 
     Serial.println();
     Serial.println(F("=================================================="));
-#if defined(BOARD_MODE_BLE)
+#if defined(BOARD_MODE_DEVKIT)
+    Serial.println(F("   KMSP RUNWAY TRACKER - ESP32-S3 (DEVKIT TEST)   "));
+    Serial.println(F("   OLED: I2C on SDA=GPIO1, SCL=GPIO2              "));
+    Serial.println(F("   LED:  Onboard WS2812 (Landing=Orange, Dep=Blue)"));
+    Serial.println(F("   TIP:  Tap BOOT (GPIO0) to cycle Demo Flights!  "));
+#elif defined(BOARD_MODE_BLE)
     Serial.println(F("  KMSP RUNWAY TRACKER - ESP32-S3 (OFFICE BLE MODE)"));
 #else
     Serial.println(F("   KMSP RUNWAY TRACKER - ESP32-S3 (HOME WIFI MODE)"));
@@ -86,8 +91,62 @@ void loop() {
     if (digitalRead(PIN_USER_BUTTON) == LOW) {
         delay(50); // Debounce
         if (digitalRead(PIN_USER_BUTTON) == LOW) {
+#if defined(BOARD_MODE_DEVKIT)
+            static uint8_t demo_cycle = 0;
+            demo_cycle = (demo_cycle + 1) % 3;
+            if (demo_cycle == 1) {
+                // Demo 1: Landing on 30R (Orange LED + Delta 793 arriving from KDEN)
+                Serial.println(F("[DevKit Demo] Step 1/3: Simulating LANDING on 30R (Orange LED + OLED)"));
+                resetAllRunwaysToIdle();
+                setRunwayState("30R", "LANDING", 0.5f);
+                memset(&telemetry_data, 0, sizeof(telemetry_data));
+                telemetry_data.flight_count = 1;
+                telemetry_data.tracked_count = 1;
+                telemetry_data.has_had_event = true;
+                strncpy(telemetry_data.flights[0].runway, "30R", sizeof(telemetry_data.flights[0].runway));
+                strncpy(telemetry_data.flights[0].action, "LANDING", sizeof(telemetry_data.flights[0].action));
+                strncpy(telemetry_data.flights[0].flight_label, "DAL793", sizeof(telemetry_data.flights[0].flight_label));
+                strncpy(telemetry_data.flights[0].aircraft_type, "A321", sizeof(telemetry_data.flights[0].aircraft_type));
+                strncpy(telemetry_data.flights[0].route, "DEN->MSP", sizeof(telemetry_data.flights[0].route));
+                strncpy(telemetry_data.runway_roles_summary, "ARR: 30R | DEP: 30L", sizeof(telemetry_data.runway_roles_summary));
+                updateTelemetryData(telemetry_data);
+            } else if (demo_cycle == 2) {
+                // Demo 2: Takeoff on 30L (Blue LED + SkyWest 3822 departing to KORD)
+                Serial.println(F("[DevKit Demo] Step 2/3: Simulating TAKEOFF on 30L (Blue LED + OLED)"));
+                resetAllRunwaysToIdle();
+                setRunwayState("30L", "TAKEOFF", 0.5f);
+                memset(&telemetry_data, 0, sizeof(telemetry_data));
+                telemetry_data.flight_count = 1;
+                telemetry_data.tracked_count = 1;
+                telemetry_data.has_had_event = true;
+                strncpy(telemetry_data.flights[0].runway, "30L", sizeof(telemetry_data.flights[0].runway));
+                strncpy(telemetry_data.flights[0].action, "TAKEOFF", sizeof(telemetry_data.flights[0].action));
+                strncpy(telemetry_data.flights[0].flight_label, "SKW3822", sizeof(telemetry_data.flights[0].flight_label));
+                strncpy(telemetry_data.flights[0].aircraft_type, "E75L", sizeof(telemetry_data.flights[0].aircraft_type));
+                strncpy(telemetry_data.flights[0].route, "MSP->ORD", sizeof(telemetry_data.flights[0].route));
+                strncpy(telemetry_data.runway_roles_summary, "ARR: 30R | DEP: 30L", sizeof(telemetry_data.runway_roles_summary));
+                updateTelemetryData(telemetry_data);
+            } else {
+                // Demo 0: Idle state (Amber breathing LED + KMSP METAR)
+                Serial.println(F("[DevKit Demo] Step 3/3: Simulating IDLE / METAR (Standby LED + OLED)"));
+                resetAllRunwaysToIdle();
+                memset(&telemetry_data, 0, sizeof(telemetry_data));
+                telemetry_data.flight_count = 0;
+                telemetry_data.tracked_count = 0;
+                telemetry_data.has_had_event = true;
+                telemetry_data.weather.valid = true;
+                strncpy(telemetry_data.weather.flight_category, "VFR", sizeof(telemetry_data.weather.flight_category));
+                telemetry_data.weather.temp_f = 68;
+                strncpy(telemetry_data.weather.wind, "300@12kt", sizeof(telemetry_data.weather.wind));
+                strncpy(telemetry_data.weather.pressure, "30.06 inHg", sizeof(telemetry_data.weather.pressure));
+                strncpy(telemetry_data.weather.condition, "Scattered", sizeof(telemetry_data.weather.condition));
+                strncpy(telemetry_data.runway_roles_summary, "ARR: 30R | DEP: 30L", sizeof(telemetry_data.runway_roles_summary));
+                updateTelemetryData(telemetry_data);
+            }
+#else
             Serial.println(F("[Button] User SW1 pressed. Refreshing display."));
             renderDisplayLoop();
+#endif
             while (digitalRead(PIN_USER_BUTTON) == LOW) {
                 delay(10);
             }

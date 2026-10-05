@@ -6,10 +6,7 @@
 // HARDWARE PIN DEFINITIONS (Verified against Schematic & Netlist)
 // =============================================================================
 
-// WS2812B Addressable LED Data Line (Level shifted 3.3V -> 5V via U87 SN74LVC1T45)
-#define PIN_LED_DATA        4
-
-// I2C OLED Display Header J3
+// I2C OLED Display (Connect OLED SDA to GPIO1, SCL to GPIO2)
 #define PIN_OLED_SDA        1
 #define PIN_OLED_SCL        2
 #define OLED_I2C_ADDR       0x3C
@@ -26,10 +23,23 @@
 // LED MATRIX & POWER MANAGEMENT
 // =============================================================================
 
+#if defined(BOARD_MODE_DEVKIT)
+// DevKit Test Setup:
+// Standard ESP32-S3 DevKitC-1 onboard addressable WS2812 RGB LED is on GPIO 48 (or GPIO 38 on v1.1)
+#ifndef PIN_DEVKIT_RGB_LED
+#define PIN_DEVKIT_RGB_LED  48
+#endif
+#define PIN_LED_DATA        PIN_DEVKIT_RGB_LED
+#define NUM_LEDS            1
+#define MAX_LED_BRIGHTNESS  40   // Comfortable desktop viewing brightness
+#else
+// Custom PCB Hardware:
+// Level shifted 3.3V -> 5V via U87 SN74LVC1T45 driving 84 LEDs
+#define PIN_LED_DATA        4
 #define NUM_LEDS            84
-
 // Current & Thermal safety limit: 64/255 limits draw to ~1.2A worst-case for 84 LEDs
 #define MAX_LED_BRIGHTNESS  64  
+#endif  
 
 // =============================================================================
 // PHYSICAL RUNWAY LED MAPPING (Verified with PCB Component Designators U2 - U85)
