@@ -19,6 +19,9 @@
 #define PIN_UART_TX         43  // Header J2 TXD0
 #define PIN_UART_RX         44  // Header J2 RXD0
 
+// OLED Display Burn-In Protection
+#define OLED_IDLE_SLEEP_TIMEOUT_MS  (5 * 60 * 1000UL) // Sleep display after 5 minutes of idle
+
 // =============================================================================
 // LED MATRIX & POWER MANAGEMENT
 // =============================================================================

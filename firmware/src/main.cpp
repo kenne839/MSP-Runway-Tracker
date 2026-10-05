@@ -91,6 +91,7 @@ void loop() {
     if (digitalRead(PIN_USER_BUTTON) == LOW) {
         delay(50); // Debounce
         if (digitalRead(PIN_USER_BUTTON) == LOW) {
+            wakeDisplay(); // Instantly wake OLED if asleep and reset 5-minute timer
 #if defined(BOARD_MODE_DEVKIT)
             static uint8_t demo_cycle = 0;
             demo_cycle = (demo_cycle + 1) % 3;

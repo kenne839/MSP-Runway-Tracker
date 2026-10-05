@@ -12,12 +12,37 @@
 
 static Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 static bool display_initialized = false;
+static bool is_display_sleeping = false;
+static uint32_t last_active_event_time = 0;
 
 static DisplayTelemetryData current_data;
 static uint8_t current_flight_idx = 0;
 static uint32_t last_cycle_time = 0;
 static uint32_t last_telemetry_rx_time = 0;
 static bool has_received_initial_data = false;
+
+void wakeDisplay() {
+    if (!display_initialized) return;
+    last_active_event_time = millis();
+    if (is_display_sleeping) {
+        display.ssd1306_command(SSD1306_DISPLAYON);
+        is_display_sleeping = false;
+        Serial.println(F("[OLED] Waking up display from idle sleep."));
+    }
+}
+
+bool isDisplaySleeping() {
+    return is_display_sleeping;
+}
+
+static void sleepDisplay() {
+    if (!display_initialized || is_display_sleeping) return;
+    display.clearDisplay();
+    display.display();
+    display.ssd1306_command(SSD1306_DISPLAYOFF);
+    is_display_sleeping = true;
+    Serial.println(F("[OLED] 5-minute idle reached. Display entered sleep mode to prevent burn-in."));
+}
 
 // Safe string printer: guarantees string never exceeds max_chars (21 chars = 126px, never clips)
 static void printFitted(const char* str, uint8_t max_chars = 21) {
@@ -89,6 +114,8 @@ void initDisplay() {
     current_data.active_runways_summary[0] = '\0';
     current_data.runway_roles_summary[0] = '\0';
     current_data.weather.valid = false;
+    last_active_event_time = millis();
+    is_display_sleeping = false;
 }
 
 void showBootScreen(const char* status_text) {
@@ -141,17 +168,16 @@ void updateTelemetryData(const DisplayTelemetryData& data) {
     if (current_flight_idx >= current_data.flight_count) {
         current_flight_idx = 0;
     }
+    // If active flight operations are present, wake display and reset idle sleep timer
+    if (current_data.flight_count > 0) {
+        wakeDisplay();
+    }
 }
 
 void renderDisplayLoop() {
     if (!display_initialized) return;
 
     uint32_t now = millis();
-    static uint32_t last_display_draw_time = 0;
-    if (now - last_display_draw_time < 100) {
-        return; // ~10 FPS display refresh rate: frees I2C bus so LED animations run silky-smooth at 50 FPS
-    }
-    last_display_draw_time = now;
 
     // Allow up to 65 seconds (two 30s OpenSky poll cycles + buffer) before declaring link lost
     bool is_stale = has_received_initial_data && (now - last_telemetry_rx_time > 65000);
@@ -160,6 +186,34 @@ void renderDisplayLoop() {
         // Expire active flights so old landing/takeoff events are not displayed
         current_data.flight_count = 0;
     }
+
+    bool has_active_flights = (current_data.flight_count > 0 && !is_stale);
+
+    if (has_active_flights) {
+        last_active_event_time = now;
+        if (is_display_sleeping) {
+            wakeDisplay();
+        }
+    } else {
+        // Idle state: Check if 5-minute timeout has elapsed
+        if (now - last_active_event_time >= OLED_IDLE_SLEEP_TIMEOUT_MS) {
+            if (!is_display_sleeping) {
+                sleepDisplay();
+            }
+            return; // While asleep, do not draw or refresh display
+        }
+    }
+
+    // If sleeping, do nothing
+    if (is_display_sleeping) {
+        return;
+    }
+
+    static uint32_t last_display_draw_time = 0;
+    if (now - last_display_draw_time < 100) {
+        return; // ~10 FPS display refresh rate: frees I2C bus so LED animations run silky-smooth at 50 FPS
+    }
+    last_display_draw_time = now;
 
     // Cycle through active events every 5000 ms (5 seconds)
     if (current_data.flight_count > 1 && (now - last_cycle_time > 5000)) {

@@ -43,3 +43,5 @@ void showBootScreen(const char* status_text);
 void showWifiStatus(bool connected, const char* ip_str);
 void updateTelemetryData(const DisplayTelemetryData& data);
 void renderDisplayLoop();
+void wakeDisplay();
+bool isDisplaySleeping();

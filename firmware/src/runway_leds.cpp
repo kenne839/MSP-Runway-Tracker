@@ -1,7 +1,7 @@
 #include "runway_leds.h"
 
 static CRGB leds[NUM_LEDS];
-static bool has_had_event = false;
+static bool has_had_event = true; // Default true so the prevailing runway (30R) slowly strobes from power-on
 
 // Precomputed normalized physical distance along runway centerline (0.0f to 1.0f)
 // Derived directly from the Altium Pick and Place CAD coordinates.
@@ -39,7 +39,7 @@ static const float norm_35_17[20] = {
 // 4. Runway 35 - 17:  U66 - U85 (20 LEDs)
 static RunwaySegment runways[4] = {
     {"12R", "30L", RW_12R_30L_START, RW_12R_30L_END, RW_12R_30L_CROSSING, RW_STATE_IDLE, false, 0.0f, 0.006f, false, false, 0.0f, norm_12R_30L},
-    {"30R", "12L", RW_30R_12L_START, RW_30R_12L_END, RW_30R_12L_CROSSING, RW_STATE_IDLE, true,  0.0f, 0.006f, false, true,  0.0f, norm_30R_12L},
+    {"30R", "12L", RW_30R_12L_START, RW_30R_12L_END, RW_30R_12L_CROSSING, RW_STATE_IDLE, true,  0.0f, 0.006f, true,  true,  0.0f, norm_30R_12L},
     {"22",  "4",   RW_22_4_START,    RW_22_4_END,    -1,                   RW_STATE_IDLE, true,  0.0f, 0.006f, false, true,  0.0f, norm_22_4},
     {"35",  "17",  RW_35_17_START,   RW_35_17_END,   -1,                   RW_STATE_IDLE, true,  0.0f, 0.006f, false, true,  0.0f, norm_35_17}
 };
