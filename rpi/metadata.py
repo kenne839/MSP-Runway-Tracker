@@ -59,16 +59,16 @@ class MetadataResolver:
 
         if icao_code in self.airlines:
             airline_name = self.airlines[icao_code]
-        else:
-            airline_name = callsign
+            # Strip redundant suffixes so 4-digit flight numbers never cut off
+            for sfx in (" Airlines", " Air Lines", " Airways", " Aviation", " Express"):
+                if airline_name.endswith(sfx):
+                    airline_name = airline_name[:-len(sfx)].strip()
 
-        # Strip redundant suffixes so 4-digit flight numbers never cut off
-        for sfx in (" Airlines", " Air Lines", " Airways", " Aviation", " Express"):
-            if airline_name.endswith(sfx):
-                airline_name = airline_name[:-len(sfx)].strip()
+            formatted = f"{airline_name} {flight_num}".strip() if flight_num else airline_name
+            return airline_name, flight_num, formatted
 
-        formatted = f"{airline_name} {flight_num}".strip() if flight_num else airline_name
-        return airline_name, flight_num, formatted
+        # Unknown airline prefix: use callsign directly without duplicating flight_num!
+        return callsign, flight_num, callsign
 
     def resolve_airframe(self, icao24: str | None) -> tuple[str, str]:
         """

@@ -1,5 +1,6 @@
 {
     "DAL": "Delta",
+    "SCX": "Sun Country",
     "SYX": "Sun Country",
     "SWA": "Southwest",
     "UAL": "United",
@@ -15,6 +16,7 @@
     "DLH": "Lufthansa",
     "EIN": "Aer Lingus",
     "ICE": "Icelandair",
+    "CFG": "Condor",
     "CXP": "Condor",
     "OCN": "Discover",
     "EDV": "Endeavor",
@@ -27,5 +29,10 @@
     "BEM": "Bemidji",
     "GTI": "Atlas Air",
     "CKS": "Kalitta",
-    "EJA": "NetJets"
+    "EJA": "NetJets",
+    "JIA": "PSA",
+    "PDT": "Piedmont",
+    "QXE": "Horizon",
+    "JZA": "Jazz",
+    "CPZ": "Compass"
 }

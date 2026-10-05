@@ -891,6 +891,9 @@ def fetch_msp_traffic():
         airline_code = raw_callsign[:3]
         if airline_code in AIRLINES:
             airline_name = AIRLINES[airline_code]
+            for sfx in (" Airlines", " Air Lines", " Airways", " Aviation", " Express"):
+                if airline_name.endswith(sfx):
+                    airline_name = airline_name[:-len(sfx)].strip()
             flight_num = raw_callsign[3:].strip()
             flight_str = f"{airline_name} {flight_num}".strip()
         else:

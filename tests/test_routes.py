@@ -176,6 +176,38 @@ class TestRouteResolution(unittest.TestCase):
         self.assertNotIn(fake_hex, self.resolver.aircraft_db)
         self.assertFalse(self.resolver._db_modified, "Unknown hex must NEVER mark 17MB DB as modified!")
 
+    def test_resolve_airline_and_callsign_fallback(self):
+        """Verify airline translation and ensure unknown callsigns do not duplicate flight numbers."""
+        # 1. Sun Country Airlines (SCX)
+        airl, num, label = self.resolver.resolve_airline("SCX408")
+        self.assertEqual(airl, "Sun Country")
+        self.assertEqual(num, "408")
+        self.assertEqual(label, "Sun Country 408")
+
+        # 2. Southwest Airlines (SWA)
+        airl, num, label = self.resolver.resolve_airline("SWA1234")
+        self.assertEqual(airl, "Southwest")
+        self.assertEqual(num, "1234")
+        self.assertEqual(label, "Southwest 1234")
+
+        # 3. Delta Air Lines suffix stripping (DAL)
+        airl, num, label = self.resolver.resolve_airline("DAL1711")
+        self.assertEqual(airl, "Delta")
+        self.assertEqual(num, "1711")
+        self.assertEqual(label, "Delta 1711")
+
+        # 4. Unknown airline callsign (Must NOT produce 'XYZ999 999')
+        airl, num, label = self.resolver.resolve_airline("XYZ999")
+        self.assertEqual(airl, "XYZ999")
+        self.assertEqual(num, "999")
+        self.assertEqual(label, "XYZ999")
+
+        # 5. General aviation tail number (Must NOT produce 'N12345 12345')
+        airl, num, label = self.resolver.resolve_airline("N12345")
+        self.assertEqual(airl, "N12345")
+        self.assertEqual(label, "N12345")
+
 
 if __name__ == "__main__":
     unittest.main()
+
