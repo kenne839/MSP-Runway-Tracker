@@ -135,17 +135,19 @@ void renderDisplayLoop() {
         display.setCursor(2, 4);
         display.print(F("RW "));
         display.print(f.runway);
-        display.print(F(" - "));
-        display.print(f.action);
+        display.print(F(" "));
 
-        // If multiple flights, show cycle indicator e.g. "[1/2]"
+        // If multiple flights, show cycle indicator e.g. "[1/2]" with safe gap
         if (current_data.flight_count > 1) {
-            display.setCursor(96, 4);
-            display.print(F("["));
-            display.print(current_flight_idx + 1);
-            display.print(F("/"));
-            display.print(current_data.flight_count);
-            display.print(F("]"));
+            display.print(f.action);
+            char cyc[8];
+            snprintf(cyc, sizeof(cyc), "[%d/%d]", current_flight_idx + 1, current_data.flight_count);
+            int cyc_x = SCREEN_WIDTH - ((int)strlen(cyc) * 6) - 2;
+            display.setCursor(cyc_x, 4);
+            display.print(cyc);
+        } else {
+            display.print(F("- "));
+            display.print(f.action);
         }
 
         // =====================================================================
@@ -188,10 +190,10 @@ void renderDisplayLoop() {
         // TOP YELLOW ZONE (Rows y = 0 to 15)
         display.setTextSize(1);
         display.setTextColor(SSD1306_WHITE);
-        display.setCursor(4, 3);
+        display.setCursor(2, 3);
         display.print(F("KMSP AIRPORT"));
-        display.setCursor(72, 3);
-        display.print(F("[STANDBY]"));
+        display.setCursor(90, 3);
+        display.print(F("[STBY]"));
         display.drawFastHLine(0, 15, SCREEN_WIDTH, SSD1306_WHITE);
 
         // BOTTOM BLUE ZONE (Rows y = 16 to 63)
@@ -217,12 +219,13 @@ void renderDisplayLoop() {
         // TOP YELLOW ZONE (Rows y = 0 to 15)
         display.setTextSize(1);
         display.setTextColor(SSD1306_WHITE);
-        display.setCursor(4, 3);
+        display.setCursor(2, 3);
         display.print(F("KMSP AIRPORT"));
-        display.setCursor(74, 3);
         if (wifi_down) {
-            display.print(F("[NO WI-FI]"));
+            display.setCursor(78, 3);
+            display.print(F("[NO-NET]"));
         } else {
+            display.setCursor(72, 3);
             display.print(F("[OFFLINE]"));
         }
         display.drawFastHLine(0, 15, SCREEN_WIDTH, SSD1306_WHITE);
@@ -261,19 +264,19 @@ void renderDisplayLoop() {
         // TOP YELLOW ZONE (Rows y = 0 to 15)
         display.setTextSize(1);
         display.setTextColor(SSD1306_WHITE);
-        display.setCursor(4, 3);
+        display.setCursor(2, 3);
         display.print(F("KMSP AIRPORT"));
 
-        // Flight condition category badge e.g. [VFR] or [IFR]
-        if (current_data.weather.valid) {
-            display.setCursor(84, 3);
-            display.print(F("["));
-            display.print(current_data.weather.flight_category);
-            display.print(F("]"));
+        // Dynamically right-align badge ([IDLE], [VFR], [MVFR], etc.) with 2px margin from right edge
+        char badge[10];
+        if (current_data.weather.valid && current_data.weather.flight_category[0] != '\0') {
+            snprintf(badge, sizeof(badge), "[%s]", current_data.weather.flight_category);
         } else {
-            display.setCursor(96, 3);
-            display.print(F("[IDLE]"));
+            strcpy(badge, "[IDLE]");
         }
+        int badge_x = SCREEN_WIDTH - ((int)strlen(badge) * 6) - 2;
+        display.setCursor(badge_x, 3);
+        display.print(badge);
         display.drawFastHLine(0, 15, SCREEN_WIDTH, SSD1306_WHITE); // Yellow dividing line
 
         // BOTTOM BLUE ZONE (Rows y = 16 to 63)
