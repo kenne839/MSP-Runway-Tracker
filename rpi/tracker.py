@@ -164,6 +164,9 @@ class TelemetryTracker:
         self.last_departure_runway = None
         self.active_flow_group = None
 
+        # Multi-poll aircraft state history (tracks ground-to-air departure transitions)
+        self._ground_aircraft = {}  # icao24 -> {"seen_at": ts, "lat": lat, "lon": lon, "callsign": callsign}
+
         # Network outage resilience & rate-limit tracking
         self.internet_online = True
         self.last_successful_poll_ts = int(time.time())
@@ -351,7 +354,25 @@ class TelemetryTracker:
         return self.state.get_snapshot()
 
     def _process_aircraft_list(self, aircraft_list: list[dict], source_label: str):
+        now_ts = time.time()
         active_operations = []
+
+        # 0. Track ground/taxi traffic at KMSP for multi-poll transition tracking
+        for ac in aircraft_list:
+            ic = ac.get("icao24")
+            v = ac.get("velocity_ms")
+            alt = ac.get("altitude_m")
+            if ic and v is not None and v < MIN_VELOCITY_MS and alt is not None and alt < 500.0:
+                self._ground_aircraft[ic] = {
+                    "seen_at": now_ts,
+                    "lat": ac.get("lat"),
+                    "lon": ac.get("lon"),
+                    "callsign": ac.get("callsign", "")
+                }
+
+        # Prune ground records older than 5 minutes
+        ground_cutoff = now_ts - 300.0
+        self._ground_aircraft = {k: v for k, v in self._ground_aircraft.items() if v["seen_at"] > ground_cutoff}
 
         for ac in aircraft_list:
             lat = ac.get("lat")
@@ -367,14 +388,18 @@ class TelemetryTracker:
             if altitude is None or altitude > MAX_ALTITUDE_M:
                 continue
 
-            # 2. Spatial Runway Corridor Matching & Disambiguation
-            rw_match = get_runway_match(lat, lon, heading)
+            # 2. Spatial Runway Corridor Matching & Disambiguation (with departure fan support)
+            rw_match = get_runway_match(lat, lon, heading, vertical_rate=vert_rate)
             if not rw_match:
                 continue
 
             # 3. Action Classification
             if vert_rate is not None and vert_rate > TAKEOFF_MIN_VERT_RATE:
                 action = "TAKEOFF"
+                # If aircraft was previously seen on the ground, clean up transition tracker
+                ac_icao = ac.get("icao24")
+                if ac_icao and ac_icao in self._ground_aircraft:
+                    self._ground_aircraft.pop(ac_icao, None)
             elif vert_rate is not None and vert_rate < LANDING_MAX_VERT_RATE:
                 action = "LANDING"
             else:

@@ -861,7 +861,7 @@
     "origin": "IAH",
     "destination": "MSP",
     "airline": "United Airlines",
-    "updated": 1791086433
+    "updated": 1790048837
   },
   "SWA3175": {
     "origin": "BNA",
@@ -885,7 +885,7 @@
     "origin": "SDF",
     "destination": "MSP",
     "airline": "MN Airlines D/B/A Sun Country Airlines, Inc.",
-    "updated": 1791090967,
+    "updated": 1791172039,
     "is_charter": true
   },
   "UAL667": {
@@ -893,5 +893,83 @@
     "destination": "MSP",
     "airline": "United Air Lines Inc.",
     "updated": 1791090730
+  },
+  "DAL2488": {
+    "origin": "MSP",
+    "destination": "BOI",
+    "airline": "Delta Air Lines, Inc.",
+    "updated": 1791169852
+  },
+  "AAL2406": {
+    "origin": "DFW",
+    "destination": "MSP",
+    "airline": "American Airlines",
+    "updated": 1791169883
+  },
+  "DAL2191": {
+    "origin": "SAN",
+    "destination": "MSP",
+    "airline": "Delta Air Lines, Inc.",
+    "updated": 1791170626
+  },
+  "SCX3084": {
+    "origin": "CVG",
+    "destination": "MSP",
+    "airline": "MN Airlines D/B/A Sun Country Airlines, Inc.",
+    "updated": 1791170749
+  },
+  "SWA2363": {
+    "origin": "DEN",
+    "destination": "MSP",
+    "airline": "Southwest Airlines Co.",
+    "updated": 1791170871
+  },
+  "SWA4479": {
+    "origin": "BWI",
+    "destination": "MSP",
+    "airline": "Southwest Airlines Co.",
+    "updated": 1791170994
+  },
+  "DAL1711": {
+    "origin": "MSP",
+    "destination": "GRR",
+    "airline": "Delta Air Lines, Inc.",
+    "updated": 1791171911
+  },
+  "JIA5390": {
+    "origin": "DCA",
+    "destination": "MSP",
+    "airline": "PSA Airlines",
+    "updated": 1791171117
+  },
+  "AAL2176": {
+    "origin": "CLT",
+    "destination": "MSP",
+    "airline": "American Airlines Inc.",
+    "updated": 1791171271
+  },
+  "DAL2418": {
+    "origin": "MSP",
+    "destination": "GEG",
+    "airline": "Delta Air Lines, Inc.",
+    "updated": 1791171455
+  },
+  "SKW5951": {
+    "origin": "SFO",
+    "destination": "MSP",
+    "airline": "SkyWest Airlines",
+    "updated": 1791171486
+  },
+  "DAL505": {
+    "origin": "MSP",
+    "destination": "SEA",
+    "airline": "Delta Air Lines, Inc.",
+    "updated": 1791171702
+  },
+  "UAL1872": {
+    "origin": "IAH",
+    "destination": "MSP",
+    "airline": "United Air Lines Inc.",
+    "updated": 1791171825
   }
 }

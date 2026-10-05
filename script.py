@@ -272,7 +272,7 @@ def clean_airport_code(code):
         return c[1:]
     return c
 
-def format_route_string(origin, dest, action):
+def format_route_string(origin, dest, action, allow_turnaround=True):
     """
     Strict MSP Anchor Sanity Check:
     A flight movement at MSP can ONLY have a route that touches MSP.
@@ -299,21 +299,21 @@ def format_route_string(origin, dest, action):
     if act == "LANDING":
         if is_dest_msp and not is_orig_msp:
             return f"From {orig_disp}"
-        elif is_orig_msp and not is_dest_msp:
-            # Turnaround / paired leg in DB (e.g. flight scheduled MSP->XYZ returning)
-            return f"From {dest_disp}"
         elif is_orig_msp and is_dest_msp:
             return f"From {orig_disp}"
+        elif is_orig_msp and not is_dest_msp and allow_turnaround:
+            # Turnaround / paired leg in DB (e.g. flight scheduled MSP->XYZ returning)
+            return f"From {dest_disp}"
         return None
 
     elif act in ("TAKING OFF", "TAKEOFF"):
         if is_orig_msp and not is_dest_msp:
             return f"To {dest_disp}"
-        elif is_dest_msp and not is_orig_msp:
-            # Turnaround / paired leg in DB (e.g. scheduled XYZ->MSP outbound)
-            return f"To {orig_disp}"
         elif is_orig_msp and is_dest_msp:
             return f"To {dest_disp}"
+        elif is_dest_msp and not is_orig_msp and allow_turnaround:
+            # Turnaround / paired leg in DB (e.g. scheduled XYZ->MSP outbound)
+            return f"To {orig_disp}"
         return None
 
     else:
@@ -321,10 +321,11 @@ def format_route_string(origin, dest, action):
             return f"{orig_disp} -> {dest_disp}"
         return None
 
-def query_flightaware(callsign):
+def query_flightaware(callsign, action=None):
     """
     Queries FlightAware live tracking page for real-time filed flight plan.
     Extracts trackpollBootstrap JSON and looks for active legs touching MSP.
+    Prioritizes the flight leg matching the requested action (TAKEOFF vs LANDING).
     Returns: (origin, destination, airline_name) or None
     """
     if not callsign or callsign == "UNKNOWN":
@@ -352,16 +353,39 @@ def query_flightaware(callsign):
         if not flights:
             return None
 
+        act = str(action).strip().upper() if action else ""
+        candidate_legs = []
+
         for fid, fval in flights.items():
             orig = fval.get("origin", {}).get("iata") or fval.get("origin", {}).get("icao")
             dest = fval.get("destination", {}).get("iata") or fval.get("destination", {}).get("icao")
             airline = fval.get("airline", {}).get("fullName") or ""
 
             if orig and dest:
-                if is_msp_airport(orig) or is_msp_airport(dest):
-                    return str(orig).upper(), str(dest).upper(), airline
+                orig_str = str(orig).upper()
+                dest_str = str(dest).upper()
+                is_orig = is_msp_airport(orig_str)
+                is_dest = is_msp_airport(dest_str)
+                if is_orig or is_dest:
+                    candidate_legs.append((orig_str, dest_str, airline, is_orig, is_dest))
 
-        return None
+        if not candidate_legs:
+            return None
+
+        # Primary match: leg whose direction matches the current action
+        if act in ("TAKEOFF", "TAKING OFF"):
+            for orig_s, dest_s, airl, is_o, is_d in candidate_legs:
+                if is_o:
+                    return orig_s, dest_s, airl
+        elif act == "LANDING":
+            for orig_s, dest_s, airl, is_o, is_d in candidate_legs:
+                if is_d:
+                    return orig_s, dest_s, airl
+
+        # Secondary match: first leg touching MSP
+        orig_s, dest_s, airl, _, _ = candidate_legs[0]
+        return orig_s, dest_s, airl
+
     except Exception:
         return None
 
@@ -452,10 +476,10 @@ def get_flight_route(callsign, action):
             last_updated = cached_entry.get("updated", 0)
             age = now - last_updated
 
-            formatted = format_route_string(origin, dest, action)
+            formatted = format_route_string(origin, dest, action, allow_turnaround=False)
             if formatted is None:
-                # Bogus or non-MSP entry - purge it from persistent cache
-                ROUTES_DB.pop(callsign, None)
+                # Direction mismatch (e.g. cached arrival leg SAV->MSP for a departure).
+                # Bypass cache so live FlightAware flight plan is queried!
                 cached_entry = None
             elif age < ROUTE_CACHE_TTL_SEC:
                 ROUTE_CACHE[cache_key] = formatted
@@ -464,12 +488,11 @@ def get_flight_route(callsign, action):
         elif isinstance(cached_entry, str) and cached_entry and cached_entry != "Unknown":
             if " -> " in cached_entry:
                 parts = cached_entry.split(" -> ")
-                formatted = format_route_string(parts[0], parts[1], action)
+                formatted = format_route_string(parts[0], parts[1], action, allow_turnaround=False)
                 if formatted is not None:
                     ROUTE_CACHE[cache_key] = formatted
                     return formatted
                 else:
-                    ROUTES_DB.pop(callsign, None)
                     cached_entry = None
 
     # 3. Query adsbdb.com API (uncached or stale revalidation)
@@ -483,7 +506,7 @@ def get_flight_route(callsign, action):
                 orig_iata = fr["origin"].get("iata_code") or fr["origin"].get("icao_code")
                 dest_iata = fr["destination"].get("iata_code") or fr["destination"].get("icao_code")
                 if orig_iata and dest_iata:
-                    formatted = format_route_string(orig_iata, dest_iata, action)
+                    formatted = format_route_string(orig_iata, dest_iata, action, allow_turnaround=False)
                     if formatted is not None:
                         ROUTES_DB[callsign] = {
                             "origin": clean_airport_code(orig_iata),
@@ -501,11 +524,11 @@ def get_flight_route(callsign, action):
     except Exception:
         pass
 
-    # 3. FlightAware live flight plan fallback scraper (e.g. DAL2225 MCO->MSP)
-    fa_data = query_flightaware(callsign)
+    # 4. FlightAware live flight plan fallback scraper (e.g. DAL2225 MCO->MSP or DAL1711 MSP->GRR)
+    fa_data = query_flightaware(callsign, action)
     if fa_data:
         orig_fa, dest_fa, airline_fa = fa_data
-        formatted = format_route_string(orig_fa, dest_fa, action)
+        formatted = format_route_string(orig_fa, dest_fa, action, allow_turnaround=False)
         if formatted is not None:
             ROUTES_DB[callsign] = {
                 "origin": clean_airport_code(orig_fa),
@@ -530,7 +553,7 @@ def get_flight_route(callsign, action):
             route = data.get("route", [])
             if len(route) >= 2:
                 origin, dest = route[0], route[1]
-                formatted = format_route_string(origin, dest, action)
+                formatted = format_route_string(origin, dest, action, allow_turnaround=False)
                 if formatted is not None:
                     ROUTES_DB[callsign] = {
                         "origin": clean_airport_code(origin),
@@ -551,7 +574,9 @@ def get_flight_route(callsign, action):
     if cached_entry and isinstance(cached_entry, dict):
         origin = cached_entry.get("origin") or cached_entry.get("origin_icao") or ""
         dest = cached_entry.get("destination") or cached_entry.get("dest_icao") or ""
-        formatted = format_route_string(origin, dest, action)
+        formatted = format_route_string(origin, dest, action, allow_turnaround=False)
+        if formatted is None:
+            formatted = format_route_string(origin, dest, action, allow_turnaround=True)
         if formatted is not None:
             cached_entry["updated"] = int(now - ROUTE_CACHE_TTL_SEC + 86400)
             ROUTE_CACHE[cache_key] = formatted
@@ -565,26 +590,16 @@ def get_flight_route(callsign, action):
 # SPATIAL RUNWAY MATCHING ALGORITHM
 # ==============================================================================
 
-def get_active_runway(lat, lon, heading):
+def get_active_runway(lat, lon, heading, vertical_rate=None):
     """
     Determines if an aircraft is operating within an active runway corridor ("tube").
-
-    Algorithm:
-    1. Project aircraft point P and runway threshold endpoints A, B into metric coordinates.
-    2. Form vector AB (runway centerline) and vector AP (aircraft relative to threshold A).
-    3. Calculate scalar projection parameter t:
-           t = (AP . AB) / |AB|^2
-       - t = 0.0 corresponds to runway start threshold A.
-       - t = 1.0 corresponds to runway end threshold B.
-       - Clamped to [-1.5, 2.5] to extend capture zone for approach funnels and climb-outs.
-    4. Compute orthogonal cross-track distance from aircraft to extended centerline.
-    5. Check if cross-track distance < 150 meters.
-    6. Verify aircraft heading aligns with either directional runway heading within +/- 25 deg.
+    Supports expanding departure fan for climbing aircraft executing initial departure turns.
 
     Args:
         lat (float): Aircraft latitude.
         lon (float): Aircraft longitude.
         heading (float): Aircraft true track / heading in degrees (0-360).
+        vertical_rate (float): Aircraft vertical speed in m/s (optional, activates departure fan).
 
     Returns:
         str | None: Active runway designator (e.g., '12L', '30R') or None if no match.
@@ -592,6 +607,8 @@ def get_active_runway(lat, lon, heading):
     if lat is None or lon is None or heading is None:
         return None
     p_x, p_y = to_meters(lat, lon)
+    is_climbing = (vertical_rate is not None and vertical_rate >= 1.5)
+    candidates = []
     
     for rw_zone, data in RUNWAYS.items():
         a_x, a_y = to_meters(data["start"][0], data["start"][1])
@@ -604,10 +621,11 @@ def get_active_runway(lat, lon, heading):
         if dot_AB_AB == 0:
             continue
             
+        rw_len = math.sqrt(dot_AB_AB)
         # Scalar projection of aircraft vector onto runway segment
         t = (AP_x * AB_x + AP_y * AB_y) / dot_AB_AB
-        # Clamp t to corridor bounds: -1.5 (approach extension) to 2.5 (departure extension)
-        t_clamped = max(-1.5, min(2.5, t))
+        # Clamp t to corridor bounds: -2.0 (approach/departure extension) to 3.0
+        t_clamped = max(-2.0, min(3.0, t))
         
         # Closest point on extended runway centerline
         closest_x = a_x + t_clamped * AB_x
@@ -616,13 +634,32 @@ def get_active_runway(lat, lon, heading):
         # Orthogonal distance from centerline
         cross_track_dist = math.hypot(p_x - closest_x, p_y - closest_y)
         
-        # Gating: must be within 150 meters lateral distance of centerline
-        if cross_track_dist < 150:
-            for rw_name, target_heading in data["dirs"].items():
-                # Calculate minimal angular difference accounting for 360-degree boundary wrap
-                diff = abs((heading - target_heading + 180) % 360 - 180)
-                if diff <= 25:
-                    return rw_name
+        for rw_name, target_heading in data["dirs"].items():
+            is_reverse = (target_heading > 180)
+            in_dep_zone = (t < 0.2) if is_reverse else (t > 0.8)
+            dep_dist_m = max(0.0, -t * rw_len) if is_reverse else max(0.0, (t - 1.0) * rw_len)
+
+            if is_climbing and in_dep_zone:
+                max_xtrack = min(900.0, 150.0 + dep_dist_m * 0.35)
+                max_hdg_diff = 85.0
+            elif cross_track_dist < 60.0 and -0.2 <= t <= 0.8:
+                max_xtrack = 150.0
+                max_hdg_diff = 35.0
+            else:
+                max_xtrack = 150.0
+                max_hdg_diff = 25.0
+
+            if cross_track_dist > max_xtrack:
+                continue
+
+            # Calculate minimal angular difference accounting for 360-degree boundary wrap
+            diff = abs((heading - target_heading + 180) % 360 - 180)
+            if diff <= max_hdg_diff:
+                candidates.append((cross_track_dist, diff, rw_name))
+
+    if candidates:
+        candidates.sort(key=lambda c: (c[0], c[1]))
+        return candidates[0][2]
     return None
 
 def get_runway_roles():
@@ -811,8 +848,8 @@ def fetch_msp_traffic():
         if altitude is None or altitude > MAX_ALTITUDE_M:
             continue
             
-        # Spatial Filter: Project onto extended runway corridors
-        assigned_runway = get_active_runway(lat, lon, heading)
+        # Spatial Filter: Project onto extended runway corridors (with departure fan support)
+        assigned_runway = get_active_runway(lat, lon, heading, vertical_rate)
         if not assigned_runway:
             continue
 

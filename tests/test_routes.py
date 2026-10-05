@@ -73,6 +73,14 @@ class TestRouteResolution(unittest.TestCase):
         res = self.resolver.resolve_route("SCX8457", "LANDING")
         self.assertEqual(res, "From SDF")
 
+    def test_dal1711_resolution(self):
+        """Verify DAL1711 resolves to MSP -> GRR (Grand Rapids), rejecting stale SAV -> MSP turnaround."""
+        # Even if routes_db had stale SAV -> MSP inbound, taking off must resolve to GRR
+        self.resolver.route_cache.pop("DAL1711:TAKEOFF", None)
+        self.resolver.route_cache.pop("DAL1711:TAKING OFF", None)
+        res = self.resolver.resolve_route("DAL1711", "TAKEOFF")
+        self.assertEqual(res, "To GRR")
+
     def test_is_charter_detection(self):
         """Verify charter / special section (8000+ series) callsign identification."""
         self.assertTrue(self.resolver._is_charter_or_special("SCX8457"))

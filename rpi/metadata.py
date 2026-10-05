@@ -133,7 +133,7 @@ class MetadataResolver:
         return c
 
     @classmethod
-    def _validate_and_format_route(cls, origin: str | None, dest: str | None, action: str) -> str | None:
+    def _validate_and_format_route(cls, origin: str | None, dest: str | None, action: str, allow_turnaround: bool = False) -> str | None:
         """
         Strict MSP Anchor Sanity Check:
         A flight movement at MSP can ONLY have a route that touches MSP.
@@ -160,21 +160,21 @@ class MetadataResolver:
         if act == "LANDING":
             if is_dest_msp and not is_orig_msp:
                 return f"From {orig_disp}"
-            elif is_orig_msp and not is_dest_msp:
-                # Turnaround / paired leg in DB (e.g. flight scheduled MSP->XYZ returning)
-                return f"From {dest_disp}"
             elif is_orig_msp and is_dest_msp:
                 return f"From {orig_disp}"
+            elif is_orig_msp and not is_dest_msp and allow_turnaround:
+                # Turnaround / paired leg in DB (e.g. flight scheduled MSP->XYZ returning)
+                return f"From {dest_disp}"
             return None
 
         elif act in ("TAKING OFF", "TAKEOFF"):
             if is_orig_msp and not is_dest_msp:
                 return f"To {dest_disp}"
-            elif is_dest_msp and not is_orig_msp:
-                # Turnaround / paired leg in DB (e.g. scheduled XYZ->MSP outbound)
-                return f"To {orig_disp}"
             elif is_orig_msp and is_dest_msp:
                 return f"To {dest_disp}"
+            elif is_dest_msp and not is_orig_msp and allow_turnaround:
+                # Turnaround / paired leg in DB (e.g. scheduled XYZ->MSP outbound)
+                return f"To {orig_disp}"
             return None
 
         else:
@@ -183,14 +183,15 @@ class MetadataResolver:
             return None
 
     @classmethod
-    def _format_route_string(cls, origin: str, dest: str, action: str) -> str | None:
+    def _format_route_string(cls, origin: str, dest: str, action: str, allow_turnaround: bool = True) -> str | None:
         """Backwards compatibility alias for _validate_and_format_route."""
-        return cls._validate_and_format_route(origin, dest, action)
+        return cls._validate_and_format_route(origin, dest, action, allow_turnaround=allow_turnaround)
 
-    def _query_flightaware(self, callsign: str) -> tuple[str, str, str] | None:
+    def _query_flightaware(self, callsign: str, action: str = None) -> tuple[str, str, str] | None:
         """
         Queries FlightAware live tracking page for real-time filed flight plan.
         Extracts trackpollBootstrap JSON and looks for active legs touching MSP.
+        Prioritizes the flight leg matching the requested action (TAKEOFF vs LANDING).
         Returns: (origin, destination, airline_name) or None
         """
         if not callsign or callsign == "UNKNOWN":
@@ -218,16 +219,40 @@ class MetadataResolver:
             if not flights:
                 return None
 
+            act = str(action).strip().upper() if action else ""
+            candidate_legs = []
+
             for fid, fval in flights.items():
                 orig = fval.get("origin", {}).get("iata") or fval.get("origin", {}).get("icao")
                 dest = fval.get("destination", {}).get("iata") or fval.get("destination", {}).get("icao")
                 airline = fval.get("airline", {}).get("fullName") or ""
 
                 if orig and dest:
-                    if self._is_msp(orig) or self._is_msp(dest):
-                        return str(orig).upper(), str(dest).upper(), airline
+                    orig_str = str(orig).upper()
+                    dest_str = str(dest).upper()
+                    is_orig_msp = self._is_msp(orig_str)
+                    is_dest_msp = self._is_msp(dest_str)
 
-            return None
+                    if is_orig_msp or is_dest_msp:
+                        candidate_legs.append((orig_str, dest_str, airline, is_orig_msp, is_dest_msp))
+
+            if not candidate_legs:
+                return None
+
+            # 1. Primary match: leg whose direction matches the current action
+            if act in ("TAKEOFF", "TAKING OFF"):
+                for orig_s, dest_s, airl, is_o, is_d in candidate_legs:
+                    if is_o:
+                        return orig_s, dest_s, airl
+            elif act == "LANDING":
+                for orig_s, dest_s, airl, is_o, is_d in candidate_legs:
+                    if is_d:
+                        return orig_s, dest_s, airl
+
+            # 2. Secondary match: first leg touching MSP
+            orig_s, dest_s, airl, _, _ = candidate_legs[0]
+            return orig_s, dest_s, airl
+
         except Exception:
             return None
 
@@ -257,9 +282,9 @@ class MetadataResolver:
         1. In-memory session cache (0ms)
         2. Charter / Special flight check (8000-9999 series): Always query live FlightAware first!
         3. Persistent on-disk routes DB (msp_routes_cache.json) (0ms if fresh < 14 days and valid MSP anchor)
-        4. ADS-B DB API (adsbdb.com) (~150ms; only accepted if it touches MSP)
+        4. ADS-B DB API (adsbdb.com) (~150ms; only accepted if direction matches flight operation)
         5. FlightAware live real-time flight plan scraper (~400ms; parses filed FAA/ADS-B flight plan)
-        6. OpenSky Network API (/api/routes) fallback (~250ms; only accepted if it touches MSP)
+        6. OpenSky Network API (/api/routes) fallback (~250ms; only accepted if direction matches)
         7. Stale Fallback: If network lookup fails, retain existing cached itinerary IF it touches MSP.
         8. Negative caching to prevent repeated network spam for unresolvable callsigns.
         """
@@ -278,7 +303,7 @@ class MetadataResolver:
         # 1. Charter Flights (8000-9999 series): Prioritize live FlightAware FAA flight plan!
         # Static databases like adsbdb.com store old historical charter legs (e.g. SWF instead of SDF).
         if is_charter:
-            fa_data = self._query_flightaware(callsign)
+            fa_data = self._query_flightaware(callsign, action)
             if fa_data:
                 orig_fa, dest_fa, airline_fa = fa_data
                 formatted = self._validate_and_format_route(orig_fa, dest_fa, action)
@@ -315,11 +340,10 @@ class MetadataResolver:
                 last_updated = cached_entry.get("updated", 0)
                 age = now - last_updated
 
-                formatted = self._validate_and_format_route(origin, dest, action)
+                formatted = self._validate_and_format_route(origin, dest, action, allow_turnaround=False)
                 if formatted is None:
-                    # Bogus or non-MSP entry - purge it from persistent cache
-                    self.routes_db.pop(callsign, None)
-                    self._routes_db_modified = True
+                    # Direction mismatch (e.g. cached arrival leg SAV->MSP for a departure).
+                    # Bypass cache so live FlightAware flight plan is queried!
                     cached_entry = None
                 elif age < ROUTE_CACHE_TTL_SEC:
                     self.route_cache[cache_key] = formatted
@@ -328,13 +352,11 @@ class MetadataResolver:
             elif isinstance(cached_entry, str) and cached_entry and cached_entry != "Unknown":
                 if " -> " in cached_entry:
                     parts = cached_entry.split(" -> ")
-                    formatted = self._validate_and_format_route(parts[0], parts[1], action)
+                    formatted = self._validate_and_format_route(parts[0], parts[1], action, allow_turnaround=False)
                     if formatted is not None:
                         self.route_cache[cache_key] = formatted
                         return formatted
                     else:
-                        self.routes_db.pop(callsign, None)
-                        self._routes_db_modified = True
                         cached_entry = None
 
         # 3. Query adsbdb.com API (uncached or stale revalidation)
@@ -348,7 +370,7 @@ class MetadataResolver:
                     orig_iata = fr["origin"].get("iata_code") or fr["origin"].get("icao_code")
                     dest_iata = fr["destination"].get("iata_code") or fr["destination"].get("icao_code")
                     if orig_iata and dest_iata:
-                        formatted = self._validate_and_format_route(orig_iata, dest_iata, action)
+                        formatted = self._validate_and_format_route(orig_iata, dest_iata, action, allow_turnaround=False)
                         if formatted is not None:
                             self.routes_db[callsign] = {
                                 "origin": self._clean_airport_code(orig_iata),
@@ -363,11 +385,11 @@ class MetadataResolver:
         except Exception:
             pass
 
-        # 3. FlightAware live flight plan fallback scraper (e.g. DAL2225 MCO->MSP)
-        fa_data = self._query_flightaware(callsign)
+        # 4. FlightAware live flight plan fallback scraper (e.g. DAL2225 MCO->MSP or DAL1711 MSP->GRR)
+        fa_data = self._query_flightaware(callsign, action)
         if fa_data:
             orig_fa, dest_fa, airline_fa = fa_data
-            formatted = self._validate_and_format_route(orig_fa, dest_fa, action)
+            formatted = self._validate_and_format_route(orig_fa, dest_fa, action, allow_turnaround=False)
             if formatted is not None:
                 self.routes_db[callsign] = {
                     "origin": self._clean_airport_code(orig_fa),
@@ -395,7 +417,7 @@ class MetadataResolver:
                 route = data.get("route", [])
                 if len(route) >= 2:
                     origin, dest = route[0], route[1]
-                    formatted = self._validate_and_format_route(origin, dest, action)
+                    formatted = self._validate_and_format_route(origin, dest, action, allow_turnaround=False)
                     if formatted is not None:
                         self.routes_db[callsign] = {
                             "origin": self._clean_airport_code(origin),
@@ -413,7 +435,9 @@ class MetadataResolver:
         if cached_entry and isinstance(cached_entry, dict):
             origin = cached_entry.get("origin") or cached_entry.get("origin_icao") or ""
             dest = cached_entry.get("destination") or cached_entry.get("dest_icao") or ""
-            formatted = self._validate_and_format_route(origin, dest, action)
+            formatted = self._validate_and_format_route(origin, dest, action, allow_turnaround=False)
+            if formatted is None:
+                formatted = self._validate_and_format_route(origin, dest, action, allow_turnaround=True)
             if formatted is not None:
                 # Extend the update timestamp slightly (1 day) so we don't spam the network during an outage
                 cached_entry["updated"] = int(now - ROUTE_CACHE_TTL_SEC + 86400)

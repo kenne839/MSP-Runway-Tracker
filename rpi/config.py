@@ -104,9 +104,16 @@ RUNWAY_MAX_CROSS_TRACK_M = 150.0  # Lateral distance tolerance from extended cen
 DEFAULT_HEADING_TOLERANCE_DEG = 25.0
 CRAB_HEADING_TOLERANCE_DEG = 35.0 # Broadened tolerance when close to touchdown centerline
 
+# Departure Fan Gates:
+# Departing aircraft make immediate turns (SIDs) once airborne.
+# In the climb-out sector past the departure threshold, expand cross-track and heading tolerances
+# to prevent missing takeoffs due to initial 90-degree departure turns.
+DEPARTURE_FAN_MAX_CROSS_TRACK_M = 900.0     # Expanded lateral tolerance in climb-out cone
+DEPARTURE_FAN_HEADING_TOLERANCE_DEG = 85.0   # Accommodate up to 85° immediate departure turns
+
 # Corridor projection parameter t:
-CORRIDOR_T_MIN = -1.5  # Extended approach capture zone
-CORRIDOR_T_MAX = 2.5   # Extended departure capture zone
+CORRIDOR_T_MIN = -2.0  # Extended approach / departure capture zone (~6km past threshold)
+CORRIDOR_T_MAX = 3.0   # Extended departure / approach capture zone
 
 # ==============================================================================
 # DATA SOURCE & POLLING
@@ -118,10 +125,11 @@ DATA_SOURCE = os.environ.get("MSP_DATA_SOURCE", "opensky")
 # OpenSky API Configuration
 OPENSKY_URL = "https://opensky-network.org/api/states/all"
 OPENSKY_ROUTES_URL = "https://opensky-network.org/api/routes"
-# Default polling interval: 30.0 seconds
-# - Free registered account (4,000 requests/day): 86,400s / 30s = 2,880 req/day (well within limit 24/7).
+# Default polling interval: 25.0 seconds
+# - Free registered account (4,000 requests/day): 86,400s / 25s = 3,456 req/day (comfortably within quota).
+# - Combined with the Departure Fan Corridor, even rapid 90° turns are captured reliably.
 # - Can be customized via MSP_POLL_INTERVAL in .env or environment.
-OPENSKY_POLL_INTERVAL = float(os.environ.get("MSP_POLL_INTERVAL", "30.0")) # seconds
+OPENSKY_POLL_INTERVAL = float(os.environ.get("MSP_POLL_INTERVAL", "25.0")) # seconds
 
 # ADS-B DB Routes Configuration (David Taylor / Planebase flight routes)
 ADSDB_ROUTES_URL = "https://api.adsbdb.com/v0/callsign"
