@@ -214,44 +214,57 @@ RUNWAYS = {
 # METADATA RESOLUTION FUNCTIONS
 # ==============================================================================
 
-def get_aircraft_type(icao24):
+def get_aircraft_type(icao24, callsign=None):
     """
     Resolves the aircraft ICAO type code from its 24-bit Mode-S transponder hex address.
-
-    Resolution Strategy:
-    1. Checks local persistent cache (AIRCRAFT_DB).
-    2. Fallback: Queries HexDB REST API (https://hexdb.io).
-    3. Caches result (including negative hits as 'UNKNOWN') to minimize network overhead.
-
-    Args:
-        icao24 (str): 24-bit ICAO transponder hex code (e.g., 'a835af').
-
-    Returns:
-        str: ICAO type code (e.g., 'B738', 'A21N') or 'UNKNOWN'.
+    Multi-source fallback: Local DB -> HexDB -> ADS-B DB -> Callsign Flight Plan.
     """
-    if not icao24:
+    if not icao24 and not callsign:
         return "UNKNOWN"
-    hex_code = icao24.lower().strip()
-    if hex_code in AIRCRAFT_DB:
+    hex_code = icao24.lower().strip() if icao24 else None
+    if hex_code and hex_code in AIRCRAFT_DB:
         return AIRCRAFT_DB[hex_code]
 
     ac_type = "UNKNOWN"
-    try:
-        url = f"https://hexdb.io/api/v1/aircraft/{hex_code}"
-        res = requests.get(url, timeout=3, verify=False)
-        if res.status_code == 200:
-            data = res.json()
-            ac_type = data.get("ICAOTypeCode") or data.get("Type") or "UNKNOWN"
-    except Exception:
-        pass 
+    if hex_code:
+        try:
+            url = f"https://hexdb.io/api/v1/aircraft/{hex_code}"
+            res = requests.get(url, timeout=3, verify=False)
+            if res.status_code == 200:
+                data = res.json()
+                resolved = data.get("ICAOTypeCode") or data.get("Type")
+                if resolved and resolved.strip().upper() != "UNKNOWN":
+                    ac_type = resolved.strip().upper()
+        except Exception:
+            pass 
 
-    # Negative/positive caching to avoid repeating failed lookups
-    AIRCRAFT_DB[hex_code] = ac_type
-    try:
-        with open(AIRCRAFT_DB_FILE, "w") as f:
-            json.dump(AIRCRAFT_DB, f)
-    except Exception:
-        pass
+        if ac_type == "UNKNOWN":
+            try:
+                url = f"https://api.adsbdb.com/v0/aircraft/{hex_code}"
+                res = requests.get(url, timeout=3)
+                if res.status_code == 200:
+                    data = res.json()
+                    ac = data.get("response", {}).get("aircraft", {})
+                    resolved = ac.get("icao_type") or ac.get("type")
+                    if resolved and resolved.strip().upper() != "UNKNOWN":
+                        ac_type = resolved.strip().upper()
+            except Exception:
+                pass
+
+    if ac_type == "UNKNOWN" and callsign:
+        cached_route = ROUTES_DB.get(callsign.strip().upper())
+        if isinstance(cached_route, dict) and cached_route.get("aircraft_type"):
+            resolved = cached_route["aircraft_type"]
+            if resolved and resolved.strip().upper() != "UNKNOWN":
+                ac_type = resolved.strip().upper()
+
+    if hex_code and ac_type != "UNKNOWN":
+        AIRCRAFT_DB[hex_code] = ac_type
+        try:
+            with open(AIRCRAFT_DB_FILE, "w") as f:
+                json.dump(AIRCRAFT_DB, f)
+        except Exception:
+            pass
 
     return ac_type
 
@@ -370,6 +383,7 @@ def query_flightaware(callsign, action=None):
             orig = fval.get("origin", {}).get("iata") or fval.get("origin", {}).get("icao")
             dest = fval.get("destination", {}).get("iata") or fval.get("destination", {}).get("icao")
             airline = fval.get("airline", {}).get("fullName") or ""
+            aircraft_type = fval.get("aircraft", {}).get("type") or fval.get("aircraftType") or ""
 
             if orig and dest:
                 orig_str = str(orig).upper()
@@ -377,24 +391,24 @@ def query_flightaware(callsign, action=None):
                 is_orig = is_msp_airport(orig_str)
                 is_dest = is_msp_airport(dest_str)
                 if is_orig or is_dest:
-                    candidate_legs.append((orig_str, dest_str, airline, is_orig, is_dest))
+                    candidate_legs.append((orig_str, dest_str, airline, aircraft_type, is_orig, is_dest))
 
         if not candidate_legs:
             return None
 
         # Primary match: leg whose direction matches the current action
         if act in ("TAKEOFF", "TAKING OFF"):
-            for orig_s, dest_s, airl, is_o, is_d in candidate_legs:
+            for orig_s, dest_s, airl, ac_t, is_o, is_d in candidate_legs:
                 if is_o:
-                    return orig_s, dest_s, airl
+                    return orig_s, dest_s, airl, ac_t
         elif act == "LANDING":
-            for orig_s, dest_s, airl, is_o, is_d in candidate_legs:
+            for orig_s, dest_s, airl, ac_t, is_o, is_d in candidate_legs:
                 if is_d:
-                    return orig_s, dest_s, airl
+                    return orig_s, dest_s, airl, ac_t
 
         # Secondary match: first leg touching MSP
-        orig_s, dest_s, airl, _, _ = candidate_legs[0]
-        return orig_s, dest_s, airl
+        orig_s, dest_s, airl, ac_t, _, _ = candidate_legs[0]
+        return orig_s, dest_s, airl, ac_t
 
     except Exception:
         return None
@@ -448,13 +462,15 @@ def get_flight_route(callsign, action):
     if is_charter:
         fa_data = query_flightaware(callsign)
         if fa_data:
-            orig_fa, dest_fa, airline_fa = fa_data
+            orig_fa, dest_fa, airline_fa, *ac_extra = fa_data
+            ac_type_fa = ac_extra[0] if ac_extra else ""
             formatted = format_route_string(orig_fa, dest_fa, action)
             if formatted is not None:
                 ROUTES_DB[callsign] = {
                     "origin": clean_airport_code(orig_fa),
                     "destination": clean_airport_code(dest_fa),
                     "airline": airline_fa,
+                    "aircraft_type": ac_type_fa,
                     "updated": int(now),
                     "is_charter": True
                 }
@@ -504,13 +520,15 @@ def get_flight_route(callsign, action):
     # Static databases like adsbdb.com frequently have outdated schedules from previous seasons (e.g. DAL2295 MSP->SFO).
     fa_data = query_flightaware(callsign, action)
     if fa_data:
-        orig_fa, dest_fa, airline_fa = fa_data
+        orig_fa, dest_fa, airline_fa, *ac_extra = fa_data
+        ac_type_fa = ac_extra[0] if ac_extra else ""
         formatted = format_route_string(orig_fa, dest_fa, action, allow_turnaround=False)
         if formatted is not None:
             ROUTES_DB[callsign] = {
                 "origin": clean_airport_code(orig_fa),
                 "destination": clean_airport_code(dest_fa),
                 "airline": airline_fa,
+                "aircraft_type": ac_type_fa,
                 "updated": int(now),
                 "source": "flightaware"
             }
@@ -900,7 +918,7 @@ def fetch_msp_traffic():
             flight_str = raw_callsign
 
         # Resolve Aircraft Type and Translate to Human-Readable Format
-        raw_ac_type = get_aircraft_type(icao24)
+        raw_ac_type = get_aircraft_type(icao24, callsign=raw_callsign)
         readable_ac_type = AIRFRAMES.get(raw_ac_type, raw_ac_type)
         
         # Unit Conversions for Console Telemetry Output

@@ -413,8 +413,18 @@ class TelemetryTracker:
             # 4. Metadata Resolution
             raw_callsign = ac.get("callsign", "UNKNOWN")
             airline_name, flight_num, flight_label = self.meta.resolve_airline(raw_callsign)
-            type_code, aircraft_type = self.meta.resolve_airframe(ac.get("icao24"))
+            type_code, aircraft_type = self.meta.resolve_airframe(ac.get("icao24"), callsign=raw_callsign)
             route = self.meta.resolve_route(raw_callsign, action)
+
+            # Secondary backfill: if route resolution discovered aircraft_type from FlightAware, adopt it!
+            if (type_code == "UNKNOWN" or aircraft_type == "UNKNOWN") and raw_callsign:
+                cached_entry = self.meta.routes_db.get(raw_callsign)
+                if isinstance(cached_entry, dict) and cached_entry.get("aircraft_type"):
+                    type_code = cached_entry["aircraft_type"]
+                    aircraft_type = self.meta.airframes.get(type_code, type_code)
+                    if ac.get("icao24"):
+                        self.meta.aircraft_db[ac.get("icao24").lower().strip()] = type_code
+                        self.meta._db_modified = True
 
             # Conversions
             speed_kts = int(velocity * 1.94384) if velocity else 0

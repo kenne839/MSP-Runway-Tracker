@@ -855,7 +855,8 @@
     "origin": "MCO",
     "destination": "MSP",
     "airline": "Delta Air Lines, Inc.",
-    "updated": 1791173545,
+    "aircraft_type": "B752",
+    "updated": 1791175278,
     "source": "flightaware"
   },
   "UAL8172": {
@@ -886,14 +887,16 @@
     "origin": "SDF",
     "destination": "MSP",
     "airline": "MN Airlines D/B/A Sun Country Airlines, Inc.",
-    "updated": 1791173811,
+    "aircraft_type": "B738",
+    "updated": 1791175279,
     "is_charter": true
   },
   "UAL667": {
     "origin": "DEN",
     "destination": "MSP",
     "airline": "United Air Lines Inc.",
-    "updated": 1791090730
+    "updated": 1791175245,
+    "source": "flightaware"
   },
   "DAL2488": {
     "origin": "MSP",
@@ -935,7 +938,8 @@
     "origin": "MSP",
     "destination": "GRR",
     "airline": "Delta Air Lines, Inc.",
-    "updated": 1791173546,
+    "aircraft_type": "B739",
+    "updated": 1791175279,
     "source": "flightaware"
   },
   "JIA5390": {
@@ -984,14 +988,16 @@
     "origin": "MSP",
     "destination": "FAR",
     "airline": "Delta Air Lines, Inc.",
-    "updated": 1791173547,
+    "aircraft_type": "A320",
+    "updated": 1791175279,
     "source": "flightaware"
   },
   "DAL2594": {
     "origin": "PHL",
     "destination": "MSP",
     "airline": "Delta Air Lines, Inc.",
-    "updated": 1791173547,
+    "aircraft_type": "BCS1",
+    "updated": 1791175279,
     "source": "flightaware"
   },
   "DAL1657": {
@@ -1017,5 +1023,53 @@
     "destination": "MSP",
     "airline": "Sun Country Airlines",
     "updated": 1791173470
+  },
+  "DAL1705": {
+    "origin": "MSP",
+    "destination": "DEN",
+    "airline": "Delta Air Lines, Inc.",
+    "updated": 1791173500
+  },
+  "DAL949": {
+    "origin": "SEA",
+    "destination": "MSP",
+    "airline": "Delta Air Lines, Inc.",
+    "updated": 1791173965,
+    "source": "flightaware"
+  },
+  "SCX296": {
+    "origin": "PDX",
+    "destination": "MSP",
+    "airline": "MN Airlines D/B/A Sun Country Airlines, Inc.",
+    "updated": 1791173964,
+    "source": "flightaware"
+  },
+  "AAL3149": {
+    "origin": "DFW",
+    "destination": "MSP",
+    "airline": "American Airlines Inc.",
+    "updated": 1791174087,
+    "source": "flightaware"
+  },
+  "DAL914": {
+    "origin": "LAX",
+    "destination": "MSP",
+    "airline": "Delta Air Lines, Inc.",
+    "updated": 1791174239,
+    "source": "flightaware"
+  },
+  "DAL10": {
+    "origin": "MSP",
+    "destination": "LHR",
+    "airline": "Delta Air Lines, Inc.",
+    "updated": 1791174666,
+    "source": "flightaware"
+  },
+  "DAL1609": {
+    "origin": "MSP",
+    "destination": "STL",
+    "airline": "Delta Air Lines, Inc.",
+    "updated": 1791174819,
+    "source": "flightaware"
   }
 }
