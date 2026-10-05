@@ -187,6 +187,8 @@ class MetadataResolver:
         """Backwards compatibility alias for _validate_and_format_route."""
         return cls._validate_and_format_route(origin, dest, action, allow_turnaround=allow_turnaround)
 
+    _flightaware_cooldown_until: float = 0.0
+
     def _query_flightaware(self, callsign: str, action: str = None) -> tuple[str, str, str] | None:
         """
         Queries FlightAware live tracking page for real-time filed flight plan.
@@ -195,6 +197,9 @@ class MetadataResolver:
         Returns: (origin, destination, airline_name) or None
         """
         if not callsign or callsign == "UNKNOWN":
+            return None
+
+        if time.time() < MetadataResolver._flightaware_cooldown_until:
             return None
 
         try:
@@ -207,6 +212,10 @@ class MetadataResolver:
                 )
             }
             res = requests.get(url, headers=headers, timeout=4)
+            if res.status_code in (429, 403):
+                MetadataResolver._flightaware_cooldown_until = time.time() + 600.0
+                print(f"[FlightAware] Notice: HTTP {res.status_code} detected. Cooldown activated for 10 min.")
+                return None
             if res.status_code != 200:
                 return None
 

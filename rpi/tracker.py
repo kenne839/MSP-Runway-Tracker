@@ -120,9 +120,13 @@ class TelemetryState:
             "consecutive_failures": 0
         }
 
+        now_dt = datetime.datetime.now()
+        updated_time_str = now_dt.strftime("%I:%M:%S%p")
+
         new_state = {
             "timestamp": now_ts,
             "iso_time": now_iso,
+            "updated_time": updated_time_str,
             "status": "ACTIVE" if active_ops else "IDLE",
             "source": source_name,
             "tracked_count": tracked_count,

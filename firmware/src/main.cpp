@@ -109,6 +109,7 @@ void loop() {
                 strncpy(telemetry_data.flights[0].aircraft_type, "A321", sizeof(telemetry_data.flights[0].aircraft_type));
                 strncpy(telemetry_data.flights[0].route, "DEN->MSP", sizeof(telemetry_data.flights[0].route));
                 strncpy(telemetry_data.runway_roles_summary, "ARR: 30R | DEP: 30L", sizeof(telemetry_data.runway_roles_summary));
+                strncpy(telemetry_data.updated_time, "11:01:05PM", sizeof(telemetry_data.updated_time));
                 updateTelemetryData(telemetry_data);
             } else if (demo_cycle == 2) {
                 // Demo 2: Takeoff on 30L (Blue LED + SkyWest 3822 departing to KORD)
@@ -125,6 +126,7 @@ void loop() {
                 strncpy(telemetry_data.flights[0].aircraft_type, "E75L", sizeof(telemetry_data.flights[0].aircraft_type));
                 strncpy(telemetry_data.flights[0].route, "MSP->ORD", sizeof(telemetry_data.flights[0].route));
                 strncpy(telemetry_data.runway_roles_summary, "ARR: 30R | DEP: 30L", sizeof(telemetry_data.runway_roles_summary));
+                strncpy(telemetry_data.updated_time, "11:01:05PM", sizeof(telemetry_data.updated_time));
                 updateTelemetryData(telemetry_data);
             } else {
                 // Demo 0: Idle state (Amber breathing LED + KMSP METAR)
@@ -141,6 +143,7 @@ void loop() {
                 strncpy(telemetry_data.weather.pressure, "30.06 inHg", sizeof(telemetry_data.weather.pressure));
                 strncpy(telemetry_data.weather.condition, "Scattered", sizeof(telemetry_data.weather.condition));
                 strncpy(telemetry_data.runway_roles_summary, "ARR: 30R | DEP: 30L", sizeof(telemetry_data.runway_roles_summary));
+                strncpy(telemetry_data.updated_time, "11:01:05PM", sizeof(telemetry_data.updated_time));
                 updateTelemetryData(telemetry_data);
             }
 #else

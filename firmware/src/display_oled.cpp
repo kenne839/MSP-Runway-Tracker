@@ -224,9 +224,17 @@ void renderDisplayLoop() {
         display.setCursor(0, 54);
         char foot[24];
         if (current_data.flight_count > 1) {
-            snprintf(foot, sizeof(foot), "Cycle 5s | %d tracked", current_data.tracked_count);
+            if (strlen(current_data.updated_time) > 0) {
+                snprintf(foot, sizeof(foot), "Cyc 5s | %s", current_data.updated_time);
+            } else {
+                snprintf(foot, sizeof(foot), "Cycle 5s | %d tracked", current_data.tracked_count);
+            }
         } else {
-            snprintf(foot, sizeof(foot), "Airspace: %d tracked", current_data.tracked_count);
+            if (strlen(current_data.updated_time) > 0) {
+                snprintf(foot, sizeof(foot), "Updated: %s", current_data.updated_time);
+            } else {
+                snprintf(foot, sizeof(foot), "Airspace: %d tracked", current_data.tracked_count);
+            }
         }
         printFitted(foot, 21);
     } else if (is_stale) {
@@ -371,7 +379,7 @@ void renderDisplayLoop() {
             printFitted(b_buf, 21);
         } else {
             char b_buf[24];
-            snprintf(b_buf, sizeof(b_buf), "Airspace: %d planes", current_data.tracked_count);
+            snprintf(b_buf, sizeof(b_buf), "METAR Pending...");
             printFitted(b_buf, 21);
         }
 
@@ -381,7 +389,9 @@ void renderDisplayLoop() {
         // Row 4 (y = 54): Status Footer (strictly <= 21 chars, never clips)
         display.setCursor(0, 54);
         char foot[24];
-        if (current_data.has_had_event) {
+        if (strlen(current_data.updated_time) > 0) {
+            snprintf(foot, sizeof(foot), "Updated: %s", current_data.updated_time);
+        } else if (current_data.has_had_event) {
             snprintf(foot, sizeof(foot), "Airspace: %d tracked", current_data.tracked_count);
         } else {
             snprintf(foot, sizeof(foot), "Telemetry Ready");

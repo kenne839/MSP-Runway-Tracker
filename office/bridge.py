@@ -267,6 +267,8 @@ class OfficeBridge:
 
     async def transmit_payload(self, state_dict):
         """Transmits JSON telemetry packet to the ESP32."""
+        if isinstance(state_dict, dict) and "updated_time" not in state_dict:
+            state_dict["updated_time"] = time.strftime("%I:%M:%S%p")
         payload_str = json.dumps(state_dict) + "\n"
         payload_bytes = payload_str.encode("utf-8")
 

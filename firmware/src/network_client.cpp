@@ -159,6 +159,13 @@ bool pollTelemetryData(DisplayTelemetryData& out_telemetry) {
         strncpy(out_telemetry.runway_roles_summary, roles_summary, sizeof(out_telemetry.runway_roles_summary) - 1);
     }
 
+    // 5. Parse updated time
+    const char* ut = doc["updated_time"] | "";
+    if (ut && strlen(ut) > 0) {
+        strncpy(out_telemetry.updated_time, ut, sizeof(out_telemetry.updated_time) - 1);
+        out_telemetry.updated_time[sizeof(out_telemetry.updated_time) - 1] = '\0';
+    }
+
     // Update fallback summary string of recently active runways
     getRecentlyActiveRunwaysStr(out_telemetry.active_runways_summary, sizeof(out_telemetry.active_runways_summary));
 

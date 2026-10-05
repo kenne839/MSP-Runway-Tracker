@@ -321,6 +321,8 @@ def format_route_string(origin, dest, action, allow_turnaround=True):
             return f"{orig_disp} -> {dest_disp}"
         return None
 
+FLIGHTAWARE_LOCKOUT_UNTIL = 0.0
+
 def query_flightaware(callsign, action=None):
     """
     Queries FlightAware live tracking page for real-time filed flight plan.
@@ -328,7 +330,11 @@ def query_flightaware(callsign, action=None):
     Prioritizes the flight leg matching the requested action (TAKEOFF vs LANDING).
     Returns: (origin, destination, airline_name) or None
     """
+    global FLIGHTAWARE_LOCKOUT_UNTIL
     if not callsign or callsign == "UNKNOWN":
+        return None
+
+    if time.time() < FLIGHTAWARE_LOCKOUT_UNTIL:
         return None
 
     try:
@@ -341,6 +347,10 @@ def query_flightaware(callsign, action=None):
             )
         }
         res = requests.get(url, headers=headers, timeout=4)
+        if res.status_code in (429, 403):
+            FLIGHTAWARE_LOCKOUT_UNTIL = time.time() + 600.0
+            print(f"[FlightAware] Notice: HTTP {res.status_code} detected. Cooldown activated for 10 min.")
+            return None
         if res.status_code != 200:
             return None
 
@@ -760,6 +770,7 @@ def write_state(runway, action, callsign, aircraft_type, route, tracked_count=0)
         "aircraft_type": aircraft_type,
         "route": route,
         "timestamp": int(time.time()),
+        "updated_time": time.strftime("%I:%M:%S%p"),
         "tracked_count": tracked_count,
         "active_operations": active_ops,
         "weather": weather,
