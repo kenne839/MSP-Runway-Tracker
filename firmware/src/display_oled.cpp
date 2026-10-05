@@ -19,8 +19,19 @@ static uint32_t last_cycle_time = 0;
 static uint32_t last_telemetry_rx_time = 0;
 static bool has_received_initial_data = false;
 
+// Safe string printer: guarantees string never exceeds max_chars (21 chars = 126px, never clips)
+static void printFitted(const char* str, uint8_t max_chars = 21) {
+    if (!str) return;
+    uint8_t count = 0;
+    while (str[count] != '\0' && count < max_chars) {
+        display.write(str[count]);
+        count++;
+    }
+}
+
 void initDisplay() {
     Wire.begin(PIN_OLED_SDA, PIN_OLED_SCL);
+    Wire.setClock(400000); // 400kHz Fast I2C (4x faster, frees CPU for smooth LED animations)
     if (display.begin(SSD1306_SWITCHCAPVCC, OLED_I2C_ADDR)) {
         display_initialized = true;
         display.clearDisplay();
@@ -106,6 +117,12 @@ void renderDisplayLoop() {
     if (!display_initialized) return;
 
     uint32_t now = millis();
+    static uint32_t last_display_draw_time = 0;
+    if (now - last_display_draw_time < 100) {
+        return; // ~10 FPS display refresh rate: frees I2C bus so LED animations run silky-smooth at 50 FPS
+    }
+    last_display_draw_time = now;
+
     // Allow up to 65 seconds (two 30s OpenSky poll cycles + buffer) before declaring link lost
     bool is_stale = has_received_initial_data && (now - last_telemetry_rx_time > 65000);
 
@@ -114,8 +131,8 @@ void renderDisplayLoop() {
         current_data.flight_count = 0;
     }
 
-    // Cycle through active events every 3000 ms (3 seconds)
-    if (current_data.flight_count > 1 && (now - last_cycle_time > 3000)) {
+    // Cycle through active events every 5000 ms (5 seconds)
+    if (current_data.flight_count > 1 && (now - last_cycle_time > 5000)) {
         last_cycle_time = now;
         current_flight_idx = (current_flight_idx + 1) % current_data.flight_count;
     }
@@ -155,33 +172,31 @@ void renderDisplayLoop() {
         // =====================================================================
         display.setTextColor(SSD1306_WHITE); // Lights up physical blue pixels
         
-        // Callsign / Airline (Row 1)
+        // Callsign / Airline (Row 1) - bounded to 21 chars max
         display.setCursor(0, 19);
         display.setTextSize(1);
-        display.println(f.flight_label);
+        printFitted(f.flight_label, 21);
 
-        // Aircraft Type (Row 2)
+        // Aircraft Type (Row 2) - bounded to 21 chars max
         display.setCursor(0, 30);
-        display.println(f.aircraft_type);
+        printFitted(f.aircraft_type, 21);
 
-        // Route (Row 3)
+        // Route (Row 3) - bounded to 21 chars max
         display.setCursor(0, 41);
-        display.println(f.route);
+        printFitted(f.route, 21);
 
         // Horizontal blue divider
         display.drawFastHLine(0, 51, SCREEN_WIDTH, SSD1306_WHITE);
 
-        // Footer telemetry status (Row 4)
+        // Footer telemetry status (Row 4) - bounded to 21 chars max
         display.setCursor(0, 54);
+        char foot[24];
         if (current_data.flight_count > 1) {
-            display.print(F("Cycle 3s | "));
-            display.print(current_data.tracked_count);
-            display.print(F(" tracked"));
+            snprintf(foot, sizeof(foot), "Cycle 5s | %d tracked", current_data.tracked_count);
         } else {
-            display.print(F("Airspace: "));
-            display.print(current_data.tracked_count);
-            display.print(F(" tracked"));
+            snprintf(foot, sizeof(foot), "Airspace: %d tracked", current_data.tracked_count);
         }
+        printFitted(foot, 21);
     } else if (is_stale) {
         // =====================================================================
         // OFFLINE DIAGNOSTIC SCREEN: Telemetry connection lost or Pi unreachable
@@ -283,24 +298,23 @@ void renderDisplayLoop() {
         // Row 1 (y = 18): Runway Operational Roles (e.g. ARR 30R / DEP 30L)
         display.setCursor(0, 18);
         if (current_data.runway_roles_summary[0] != '\0') {
-            display.println(current_data.runway_roles_summary);
+            printFitted(current_data.runway_roles_summary, 21);
         } else if (current_data.active_runways_summary[0] != '\0') {
-            display.print(F("RW: "));
-            display.println(current_data.active_runways_summary);
+            char r_buf[24];
+            snprintf(r_buf, sizeof(r_buf), "RW: %s", current_data.active_runways_summary);
+            printFitted(r_buf, 21);
         } else {
-            display.println(F("RW: Standby"));
+            printFitted("RW: Standby", 21);
         }
 
         // Row 2 (y = 29): Wind & Temperature (e.g. Wind 270@11kt  59F)
         display.setCursor(0, 29);
         if (current_data.weather.valid) {
-            display.print(F("Wind "));
-            display.print(current_data.weather.wind);
-            display.print(F("  "));
-            display.print(current_data.weather.temp_f);
-            display.println(F("F"));
+            char w_buf[24];
+            snprintf(w_buf, sizeof(w_buf), "Wind %s %dF", current_data.weather.wind, current_data.weather.temp_f);
+            printFitted(w_buf, 21);
         } else {
-            display.println(F("Wind: Polling METAR..."));
+            printFitted("Wind: Polling METAR", 21);
         }
 
         // Row 3 (y = 40): Pressure & Condition (e.g. 30.24" | Few)
@@ -311,8 +325,6 @@ void renderDisplayLoop() {
             p_buf[sizeof(p_buf) - 1] = '\0';
             char* inhg = strstr(p_buf, " inHg");
             if (inhg) *inhg = '\0';
-            display.print(p_buf);
-            display.print(F("\" | "));
 
             // Compact condition labels so they easily fit 128px width
             const char* cond = current_data.weather.condition;
@@ -320,25 +332,29 @@ void renderDisplayLoop() {
             else if (strncmp(cond, "Scattered Clouds", 16) == 0) cond = "Sct";
             else if (strncmp(cond, "Broken Clouds", 13) == 0) cond = "Broken";
             else if (strncmp(cond, "Clear Skies", 11) == 0) cond = "Clear";
-            display.println(cond);
+            else if (strncmp(cond, "Overcast", 8) == 0) cond = "Ovc";
+
+            char b_buf[24];
+            snprintf(b_buf, sizeof(b_buf), "%s\" | %s", p_buf, cond);
+            printFitted(b_buf, 21);
         } else {
-            display.print(F("Airspace: "));
-            display.print(current_data.tracked_count);
-            display.println(F(" planes"));
+            char b_buf[24];
+            snprintf(b_buf, sizeof(b_buf), "Airspace: %d planes", current_data.tracked_count);
+            printFitted(b_buf, 21);
         }
 
         // Horizontal blue divider
         display.drawFastHLine(0, 51, SCREEN_WIDTH, SSD1306_WHITE);
 
-        // Row 4 (y = 54): Status Footer
+        // Row 4 (y = 54): Status Footer (strictly <= 21 chars, never clips)
         display.setCursor(0, 54);
+        char foot[24];
         if (current_data.has_had_event) {
-            display.print(F("Airspace: "));
-            display.print(current_data.tracked_count);
-            display.print(F(" tracked"));
+            snprintf(foot, sizeof(foot), "Airspace: %d tracked", current_data.tracked_count);
         } else {
-            display.print(F("Telemetry Polling Ready"));
+            snprintf(foot, sizeof(foot), "Telemetry Ready");
         }
+        printFitted(foot, 21);
     }
 
     display.display();

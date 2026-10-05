@@ -213,14 +213,14 @@ void getRecentlyActiveRunwaysStr(char* out_buf, size_t buf_len) {
 
 void renderRunwayAnimations() {
     uint32_t now = millis();
-    if (now - last_frame_time < 30) { // ~33 FPS animation loop
+    if (now - last_frame_time < 20) { // 50 FPS animation loop (silky-smooth breathing & strobes)
         return;
     }
     last_frame_time = now;
 
 #if defined(BOARD_MODE_DEVKIT)
     // DevKit Test Mode:
-    // User requested: Single onboard RGB LED indicates landing (Orange) or takeoff (Blue)
+    // Single onboard RGB LED: Strobes during active operations (Landing=Orange, Takeoff=Blue)
     RunwayOpState active_op = RW_STATE_IDLE;
     for (int r = 0; r < 4; r++) {
         if (runways[r].state == RW_STATE_LANDING) {
@@ -232,16 +232,32 @@ void renderRunwayAnimations() {
     }
 
     if (active_op == RW_STATE_LANDING) {
-        // Landing event: Orange / Amber
-        setDevKitRgb(255, 120, 0);
+        // Aviation Approach Strobe: Double-flash Orange every 750ms
+        uint32_t cycle = now % 750;
+        if (cycle < 60) {
+            setDevKitRgb(255, 120, 0); // Flash 1 (Bright Orange)
+        } else if (cycle < 130) {
+            setDevKitRgb(20, 8, 0);    // Dip
+        } else if (cycle < 190) {
+            setDevKitRgb(255, 120, 0); // Flash 2 (Bright Orange)
+        } else {
+            setDevKitRgb(15, 6, 0);    // Low baseline approach glow
+        }
     } else if (active_op == RW_STATE_TAKEOFF) {
-        // Takeoff event: Blue
-        setDevKitRgb(0, 100, 255);
+        // Aviation Departure Strobe: Crisp Blue flash every 500ms
+        uint32_t cycle = now % 500;
+        if (cycle < 80) {
+            setDevKitRgb(0, 140, 255); // Flash (Bright Blue)
+        } else if (cycle < 160) {
+            setDevKitRgb(0, 30, 80);   // Decay
+        } else {
+            setDevKitRgb(0, 6, 20);    // Low baseline departure glow
+        }
     } else {
-        // Idle mode: gentle amber breathing pulse if traffic occurred, else dim standby
+        // Idle mode: Silky smooth amber breathing pulse at 50 FPS
         if (has_had_event) {
-            float breath = (sin(now / 500.0f) + 1.0f) * 0.5f; // 0.0 to 1.0
-            uint8_t br = (uint8_t)(breath * 20.0f) + 2;
+            float breath = (sin(now / 600.0f) + 1.0f) * 0.5f; // 0.0 to 1.0
+            uint8_t br = (uint8_t)(breath * 24.0f) + 2;
             setDevKitRgb(br, (br * 6) / 10, 0); // Warm idle amber breathing
         } else {
             setDevKitRgb(0, 2, 8); // Dim standby indicator

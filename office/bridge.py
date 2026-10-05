@@ -483,7 +483,30 @@ class OfficeBridge:
                         pass
 
 
+def disable_windows_quickedit():
+    """
+    Disables QuickEdit mode on Windows console.
+    Prevents accidental mouse clicks in the PowerShell or Command Prompt window
+    from suspending process stdout and halting the background BLE event loop.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        hStdin = kernel32.GetStdHandle(-10)  # STD_INPUT_HANDLE = -10
+        mode = ctypes.c_ulong()
+        if kernel32.GetConsoleMode(hStdin, ctypes.byref(mode)):
+            ENABLE_QUICK_EDIT_MODE = 0x0040
+            ENABLE_EXTENDED_FLAGS = 0x0080
+            new_mode = (mode.value & ~ENABLE_QUICK_EDIT_MODE) | ENABLE_EXTENDED_FLAGS
+            kernel32.SetConsoleMode(hStdin, new_mode)
+    except Exception:
+        pass
+
+
 def main():
+    disable_windows_quickedit()
     parser = argparse.ArgumentParser(description="KMSP Runway Tracker Office PC Bridge")
     parser.add_argument("--mode", choices=["ble", "serial"], default="ble",
                         help="Transport mode: 'ble' (default, Bluetooth Low Energy wireless) or 'serial' (via Header J2 UART programmer)")
