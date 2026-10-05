@@ -115,5 +115,5 @@ pio device monitor -b 115200
 84 WS2812B LEDs at full white can draw up to $4.2\text{A}$, which exceeds standard USB port capabilities and would create significant thermal load. 
 
 This firmware includes two safeguards:
-1. **Brightness Clamping:** `MAX_LED_BRIGHTNESS` is set to `64` (out of 255), keeping the maximum full-load current below $1.2\text{A}$.
+1. **Brightness Clamping:** `MAX_LED_BRIGHTNESS` is set to `32` (out of 255), keeping the maximum full-load current below $0.6\text{A}$ and preventing optical glare.
 2. **Selective Animation:** At any given time, only active runways are illuminated with approach chases or rollout animations, while idle runways show subtle threshold indicators. Typical power consumption is $< 250\text{mA}$.

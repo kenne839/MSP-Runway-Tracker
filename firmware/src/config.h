@@ -31,14 +31,14 @@
 #endif
 #define PIN_LED_DATA        PIN_DEVKIT_RGB_LED
 #define NUM_LEDS            1
-#define MAX_LED_BRIGHTNESS  40   // Comfortable desktop viewing brightness
+#define MAX_LED_BRIGHTNESS  20   // Comfortable desktop viewing brightness (reduced 50% from 40 to eliminate glare)
 #else
 // Custom PCB Hardware:
 // Level shifted 3.3V -> 5V via U87 SN74LVC1T45 driving 84 LEDs
 #define PIN_LED_DATA        4
 #define NUM_LEDS            84
-// Current & Thermal safety limit: 64/255 limits draw to ~1.2A worst-case for 84 LEDs
-#define MAX_LED_BRIGHTNESS  64  
+// Current & Thermal safety limit: 32/255 limits draw to ~0.6A worst-case for 84 LEDs (reduced 50% from 64)
+#define MAX_LED_BRIGHTNESS  32  
 #endif  
 
 // =============================================================================
