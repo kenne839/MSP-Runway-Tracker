@@ -888,7 +888,7 @@
     "destination": "MSP",
     "airline": "MN Airlines D/B/A Sun Country Airlines, Inc.",
     "aircraft_type": "B738",
-    "updated": 1791254254,
+    "updated": 1791250675,
     "is_charter": true
   },
   "UAL667": {
@@ -905,11 +905,11 @@
     "updated": 1791169852
   },
   "AAL2406": {
-    "origin": "DFW",
-    "destination": "MSP",
+    "origin": "MSP",
+    "destination": "DFW",
     "airline": "American Airlines Inc.",
     "aircraft_type": "B38M",
-    "updated": 1791249858,
+    "updated": 1791254313,
     "source": "flightaware"
   },
   "DAL2191": {
@@ -1674,6 +1674,22 @@
     "airline": "SkyWest Airlines",
     "aircraft_type": "E75L",
     "updated": 1791253674,
+    "source": "flightaware"
+  },
+  "UPS559": {
+    "origin": "MSP",
+    "destination": "SDF",
+    "airline": "United Parcel Service, Inc.",
+    "aircraft_type": "B763",
+    "updated": 1791254130,
+    "source": "flightaware"
+  },
+  "DAL1098": {
+    "origin": "BOS",
+    "destination": "MSP",
+    "airline": "Delta Air Lines, Inc.",
+    "aircraft_type": "A321",
+    "updated": 1791254252,
     "source": "flightaware"
   }
 }
