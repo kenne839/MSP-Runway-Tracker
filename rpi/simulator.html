@@ -552,13 +552,26 @@ const PCB_LEDS = [
             }
         }
 
+        let lastSuccessfulPollTime = performance.now();
+
         async function pollServer() {
             if (!isLiveMode) return;
             try {
                 const apiUrl = (window.location.protocol === 'file:') ? 'http://localhost:8080/api/runway_state' : '/api/runway_state';
                 const res = await fetch(apiUrl);
-                if (!res.ok) return;
+                if (!res.ok) {
+                    if (performance.now() - lastSuccessfulPollTime > 45000) {
+                        activeFlightEvents = [];
+                        for (let seg of RUNWAYS) {
+                            seg.state = "IDLE";
+                            seg.comet_norm = 0.0;
+                        }
+                    }
+                    return;
+                }
                 const data = await res.json();
+                lastSuccessfulPollTime = performance.now();
+
                 if (data.weather) {
                     currentWeather = data.weather;
                 }
@@ -567,10 +580,7 @@ const PCB_LEDS = [
                     if (data.runway_roles.departure) lastDepartureRunway = data.runway_roles.departure;
                 }
 
-                const nowSec = Math.floor(Date.now() / 1000);
-                const isDataStale = data.timestamp && (nowSec - data.timestamp > 60);
-
-                if (!isDataStale && data.active_operations && data.active_operations.length > 0) {
+                if (data.active_operations && data.active_operations.length > 0) {
                     hasHadEvent = true;
                     data.active_operations.forEach(op => recordRunwayOperation(op.runway, op.action));
                     activeFlightEvents = data.active_operations.map(op => ({
@@ -600,6 +610,7 @@ const PCB_LEDS = [
                             }
                         } else {
                             seg.state = "IDLE";
+                            seg.comet_norm = 0.0;
                         }
                     }
                 } else {
@@ -608,10 +619,18 @@ const PCB_LEDS = [
                     activeFlightEvents = [];
                     for (let seg of RUNWAYS) {
                         seg.state = "IDLE";
+                        seg.comet_norm = 0.0;
                     }
                 }
             } catch (e) {
-                // Network or CORS failure: gracefully avoid getting stuck
+                // Link loss watchdog: If polling fails continuously for >45s, reset to IDLE
+                if (performance.now() - lastSuccessfulPollTime > 45000) {
+                    activeFlightEvents = [];
+                    for (let seg of RUNWAYS) {
+                        seg.state = "IDLE";
+                        seg.comet_norm = 0.0;
+                    }
+                }
             }
         }
         setInterval(pollServer, 1500);
@@ -727,12 +746,7 @@ const PCB_LEDS = [
                     // Constant physical mm/s speed across gaps
                     seg.comet_norm += 0.006 * speedMultiplier;
                     if (seg.comet_norm >= 1.35) {
-                        seg.state = "IDLE";
                         seg.comet_norm = 0.0;
-                        if (!isLiveMode) {
-                            // In manual trigger mode, once the rollout/climbout completes, return to IDLE!
-                            activeFlightEvents = activeFlightEvents.filter(f => f.runway !== seg.name_start && f.runway !== seg.name_end);
-                        }
                     }
 
                     for (let i = 0; i < count; i++) {
