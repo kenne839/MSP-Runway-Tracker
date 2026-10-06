@@ -888,7 +888,7 @@
     "destination": "MSP",
     "airline": "MN Airlines D/B/A Sun Country Airlines, Inc.",
     "aircraft_type": "B738",
-    "updated": 1791251531,
+    "updated": 1791250675,
     "is_charter": true
   },
   "UAL667": {
@@ -1512,6 +1512,30 @@
     "airline": "Endeavor Air, Inc.",
     "aircraft_type": "CRJ7",
     "updated": 1791251435,
+    "source": "flightaware"
+  },
+  "DAL2820": {
+    "origin": "CLT",
+    "destination": "MSP",
+    "airline": "Delta Air Lines, Inc.",
+    "aircraft_type": "A320",
+    "updated": 1791251527,
+    "source": "flightaware"
+  },
+  "EDV4965": {
+    "origin": "SDF",
+    "destination": "MSP",
+    "airline": "Endeavor Air, Inc.",
+    "aircraft_type": "CRJ7",
+    "updated": 1791251589,
+    "source": "flightaware"
+  },
+  "DAL2866": {
+    "origin": "EWR",
+    "destination": "MSP",
+    "airline": "Delta Air Lines, Inc.",
+    "aircraft_type": "BCS1",
+    "updated": 1791251650,
     "source": "flightaware"
   }
 }
