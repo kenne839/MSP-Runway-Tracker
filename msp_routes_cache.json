@@ -1008,7 +1008,9 @@
     "origin": "MSP",
     "destination": "MCI",
     "airline": "Delta Air Lines, Inc.",
-    "updated": 1791172767
+    "aircraft_type": "BCS1",
+    "updated": 1791255395,
+    "source": "flightaware"
   },
   "SCX408": {
     "origin": "SAN",
@@ -1301,11 +1303,11 @@
     "source": "flightaware"
   },
   "FDX1358": {
-    "origin": "MEM",
-    "destination": "MSP",
+    "origin": "MSP",
+    "destination": "MEM",
     "airline": "Federal Express Corporation",
     "aircraft_type": "MD11",
-    "updated": 1791249734,
+    "updated": 1791255211,
     "source": "flightaware"
   },
   "EDV5530": {
@@ -1690,6 +1692,158 @@
     "airline": "Delta Air Lines, Inc.",
     "aircraft_type": "A321",
     "updated": 1791254252,
+    "source": "flightaware"
+  },
+  "DAL1542": {
+    "origin": "LAS",
+    "destination": "MSP",
+    "airline": "Delta Air Lines, Inc.",
+    "aircraft_type": "B739",
+    "updated": 1791254373,
+    "source": "flightaware"
+  },
+  "DAL2284": {
+    "origin": "PHX",
+    "destination": "MSP",
+    "airline": "Delta Air Lines, Inc.",
+    "aircraft_type": "B739",
+    "updated": 1791254556,
+    "source": "flightaware"
+  },
+  "CSB185": {
+    "origin": "MSP",
+    "destination": "CVG",
+    "airline": "21 Air LLC",
+    "aircraft_type": "B752",
+    "updated": 1791254710,
+    "source": "flightaware"
+  },
+  "SCX8652": {
+    "origin": "IAD",
+    "destination": "MSP",
+    "airline": "MN Airlines D/B/A Sun Country Airlines, Inc.",
+    "aircraft_type": "B738",
+    "updated": 1791254741,
+    "is_charter": true
+  },
+  "DAL2391": {
+    "origin": "MSP",
+    "destination": "PDX",
+    "airline": "Delta Air Lines, Inc.",
+    "aircraft_type": "A21N",
+    "updated": 1791254742,
+    "source": "flightaware"
+  },
+  "FDX1618": {
+    "origin": "MSP",
+    "destination": "IND",
+    "airline": "Federal Express Corporation",
+    "aircraft_type": "B763",
+    "updated": 1791254804,
+    "source": "flightaware"
+  },
+  "SKW3714": {
+    "origin": "MSP",
+    "destination": "RAP",
+    "airline": "SkyWest Airlines",
+    "aircraft_type": "CRJ9",
+    "updated": 1791254867,
+    "source": "flightaware"
+  },
+  "SCX902": {
+    "origin": "IWA",
+    "destination": "MSP",
+    "airline": "MN Airlines D/B/A Sun Country Airlines, Inc.",
+    "aircraft_type": "B738",
+    "updated": 1791254964,
+    "source": "flightaware"
+  },
+  "SKW3907": {
+    "origin": "MSP",
+    "destination": "DLH",
+    "airline": "SkyWest Airlines",
+    "aircraft_type": "E75L",
+    "updated": 1791254964,
+    "source": "flightaware"
+  },
+  "DAL1563": {
+    "origin": "MSP",
+    "destination": "ORD",
+    "airline": "Delta Air Lines, Inc.",
+    "aircraft_type": "BCS1",
+    "updated": 1791254964,
+    "source": "flightaware"
+  },
+  "SKW4154": {
+    "origin": "MSP",
+    "destination": "MOT",
+    "airline": "SkyWest Airlines",
+    "aircraft_type": "CRJ9",
+    "updated": 1791255118,
+    "source": "flightaware"
+  },
+  "SKW4014": {
+    "origin": "MSP",
+    "destination": "OMA",
+    "airline": "SkyWest Airlines",
+    "aircraft_type": "CRJ9",
+    "updated": 1791255148,
+    "source": "flightaware"
+  },
+  "DAL1042": {
+    "origin": "AUS",
+    "destination": "MSP",
+    "airline": "Delta Air Lines, Inc.",
+    "aircraft_type": "A320",
+    "updated": 1791255179,
+    "source": "flightaware"
+  },
+  "SKW3834": {
+    "origin": "MSP",
+    "destination": "BIS",
+    "airline": "SkyWest Airlines",
+    "aircraft_type": "E75L",
+    "updated": 1791255210,
+    "source": "flightaware"
+  },
+  "DAL2954": {
+    "origin": "MSP",
+    "destination": "BZN",
+    "airline": "Delta Air Lines, Inc.",
+    "aircraft_type": "B739",
+    "updated": 1791255302,
+    "source": "flightaware"
+  },
+  "SKW4291": {
+    "origin": "MSP",
+    "destination": "BJI",
+    "airline": "SkyWest Airlines",
+    "aircraft_type": "CRJ7",
+    "updated": 1791255364,
+    "source": "flightaware"
+  },
+  "DAL164": {
+    "origin": "MSP",
+    "destination": "AMS",
+    "airline": "Delta Air Lines, Inc.",
+    "aircraft_type": "A339",
+    "updated": 1791255520,
+    "source": "flightaware"
+  },
+  "UPS555": {
+    "origin": "MSP",
+    "destination": "RFD",
+    "airline": "United Parcel Service, Inc.",
+    "aircraft_type": "A306",
+    "updated": 1791255612,
+    "source": "flightaware"
+  },
+  "DAL1694": {
+    "origin": "MSP",
+    "destination": "FSD",
+    "airline": "Delta Air Lines, Inc.",
+    "aircraft_type": "A319",
+    "updated": 1791255704,
     "source": "flightaware"
   }
 }
