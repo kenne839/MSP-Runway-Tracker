@@ -84,13 +84,88 @@ static void formatFlightLabel(const char* raw, char* out_buf, size_t out_len) {
     }
 }
 
+// I2C Bus Recovery: Clock out any hung slave holding SDA low (NXP UM10204 Bus Clear)
+static void recoverI2cBus(uint8_t sda_pin, uint8_t scl_pin) {
+    pinMode(sda_pin, INPUT_PULLUP);
+    pinMode(scl_pin, OUTPUT);
+    digitalWrite(scl_pin, HIGH);
+    delayMicroseconds(10);
+
+    for (int i = 0; i < 9; i++) {
+        digitalWrite(scl_pin, LOW);
+        delayMicroseconds(10);
+        digitalWrite(scl_pin, HIGH);
+        delayMicroseconds(10);
+        if (digitalRead(sda_pin) == HIGH) {
+            break; // Slave released SDA
+        }
+    }
+
+    // Generate I2C STOP condition
+    pinMode(sda_pin, OUTPUT);
+    digitalWrite(sda_pin, LOW);
+    delayMicroseconds(10);
+    digitalWrite(scl_pin, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(sda_pin, HIGH);
+    delayMicroseconds(10);
+
+    pinMode(sda_pin, INPUT_PULLUP);
+    pinMode(scl_pin, INPUT_PULLUP);
+}
+
 void initDisplay() {
-    Wire.begin(PIN_OLED_SDA, PIN_OLED_SCL);
-    Wire.setClock(400000); // 400kHz Fast I2C (4x faster, frees CPU for smooth LED animations)
-    if (display.begin(SSD1306_SWITCHCAPVCC, OLED_I2C_ADDR)) {
+    if (display_initialized) return;
+
+    // 1. Cold-boot power settling delay (ensures 3.3V rail & OLED POR capacitor are fully charged)
+    delay(150);
+
+    // 2. Lock custom pins into TwoWire instance so libraries cannot reassign them
+    Wire.setPins(PIN_OLED_SDA, PIN_OLED_SCL);
+
+    bool hardware_ready = false;
+
+    for (int attempt = 1; attempt <= 3; attempt++) {
+        // Recover bus from any hung state
+        recoverI2cBus(PIN_OLED_SDA, PIN_OLED_SCL);
+
+        // Start I2C at standard 100kHz for reliable startup handshake
+        Wire.begin(PIN_OLED_SDA, PIN_OLED_SCL, 100000);
+        Wire.setTimeOut(50);
+        delay(30);
+
+        // Probe address 0x3C to verify physical hardware is awake and ACK-ing
+        Wire.beginTransmission(OLED_I2C_ADDR);
+        if (Wire.endTransmission() == 0) {
+            hardware_ready = true;
+            break;
+        }
+
+        Serial.printf("[OLED] Device 0x%02X not responding (attempt %d/3). Retrying in 100ms...\n", OLED_I2C_ADDR, attempt);
+        delay(100);
+    }
+
+    if (!hardware_ready) {
+        Serial.println(F("[OLED] Warning: SSD1306 did not ACK I2C address. Self-healing loop will retry."));
+        return;
+    }
+
+    // Initialize display with reset=false, periphBegin=false (we already configured Wire)
+    if (display.begin(SSD1306_SWITCHCAPVCC, OLED_I2C_ADDR, false, false)) {
         display_initialized = true;
+        is_display_sleeping = false;
+        last_active_event_time = millis();
+
+        // Switch to 400kHz Fast I2C for fast screen updates
+        Wire.setClock(400000);
+
+        // Explicitly enable charge pump and turn display ON
+        display.ssd1306_command(SSD1306_CHARGEPUMP);
+        display.ssd1306_command(0x14);
+        display.ssd1306_command(SSD1306_DISPLAYON);
+
         display.clearDisplay();
-        display.setTextWrap(false); // Prevent long lines from wrapping and shifting lower rows
+        display.setTextWrap(false);
         
         // Yellow Header (y=0..15)
         display.setTextColor(SSD1306_WHITE);
@@ -105,8 +180,10 @@ void initDisplay() {
         display.setCursor(0, 38);
         display.println(F("UCTRONICS 128x64"));
         display.display();
+
+        Serial.println(F("[OLED] SSD1306 successfully initialized at 400kHz."));
     } else {
-        Serial.println(F("[OLED] Warning: SSD1306 allocation failed. Check I2C address/wiring."));
+        Serial.println(F("[OLED] Warning: display.begin failed. Self-healing loop will retry."));
     }
 
     memset(&current_data, 0, sizeof(current_data));
@@ -175,9 +252,17 @@ void updateTelemetryData(const DisplayTelemetryData& data) {
 }
 
 void renderDisplayLoop() {
-    if (!display_initialized) return;
-
     uint32_t now = millis();
+
+    // Self-healing recovery: If OLED failed on cold boot, retry every 2 seconds until it connects
+    if (!display_initialized) {
+        static uint32_t last_init_retry_time = 0;
+        if (now - last_init_retry_time > 2000) {
+            last_init_retry_time = now;
+            initDisplay();
+        }
+        return;
+    }
 
     // Allow up to 65 seconds (two 30s OpenSky poll cycles + buffer) before declaring link lost
     bool is_stale = has_received_initial_data && (now - last_telemetry_rx_time > 65000);
