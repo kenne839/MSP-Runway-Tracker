@@ -746,33 +746,18 @@ def get_runway_roles():
         "atis_code": atis_code
     }
 
-def write_state(runway, action, callsign, aircraft_type, route, tracked_count=0):
+HELD_OPERATIONS = {}
+
+def write_state(runway, action, callsign, aircraft_type, route, tracked_count=0, active_operations=None):
     """
     Persists current runway telemetry event, runway roles, and live METAR weather
     to local JSON file for downstream consumers (ESP32 LED displays, dashboards).
     """
     global LAST_LANDING_RUNWAY, LAST_DEPARTURE_RUNWAY, ACTIVE_FLOW_GROUP
 
-    # Update runway operational role tracking
-    if runway != "NONE":
-        flow_grp = FLOW_GROUP_MAP.get(runway)
-        if flow_grp and ACTIVE_FLOW_GROUP and flow_grp != ACTIVE_FLOW_GROUP:
-            LAST_LANDING_RUNWAY = None
-            LAST_DEPARTURE_RUNWAY = None
-        if flow_grp:
-            ACTIVE_FLOW_GROUP = flow_grp
-
-        if action == "LANDING":
-            LAST_LANDING_RUNWAY = runway
-        elif action in ("TAKING OFF", "TAKEOFF"):
-            LAST_DEPARTURE_RUNWAY = runway
-
-    roles = get_runway_roles()
-    weather = get_current_weather()
-
-    active_ops = []
-    if runway != "NONE" and action != "IDLE":
-        active_ops.append({
+    ops = list(active_operations) if active_operations else []
+    if not ops and runway != "NONE" and action != "IDLE":
+        ops.append({
             "runway": runway,
             "action": "TAKEOFF" if "TAKING" in action else action,
             "callsign": callsign,
@@ -781,16 +766,64 @@ def write_state(runway, action, callsign, aircraft_type, route, tracked_count=0)
             "route": route
         })
 
+    # Update runway operational role tracking from all active operations
+    for op in ops:
+        rw = op.get("runway")
+        act = op.get("action")
+        if rw and rw != "NONE":
+            flow_grp = FLOW_GROUP_MAP.get(rw)
+            if flow_grp and ACTIVE_FLOW_GROUP and flow_grp != ACTIVE_FLOW_GROUP:
+                LAST_LANDING_RUNWAY = None
+                LAST_DEPARTURE_RUNWAY = None
+            if flow_grp:
+                ACTIVE_FLOW_GROUP = flow_grp
+
+            if act == "LANDING":
+                LAST_LANDING_RUNWAY = rw
+            elif act in ("TAKING OFF", "TAKEOFF"):
+                LAST_DEPARTURE_RUNWAY = rw
+
+    roles = get_runway_roles()
+    weather = get_current_weather()
+
+    # Determine primary operation (prioritize LANDING)
+    primary = None
+    if ops:
+        landings = [o for o in ops if o.get("action") == "LANDING"]
+        primary = landings[0] if landings else ops[0]
+
+    primary_rw = primary["runway"] if primary else runway
+    primary_act = primary["action"] if primary else action
+    primary_call = primary["flight_label"] if primary else callsign
+    primary_type = primary["aircraft_type"] if primary else aircraft_type
+    primary_route = primary["route"] if primary else route
+
+    # Build runway summary for display consumers
+    ALL_RUNWAYS = ["12L", "12R", "30L", "30R", "4", "22", "17", "35"]
+    runway_summary = {r: {"status": "IDLE", "callsign": None} for r in ALL_RUNWAYS}
+    for op in ops:
+        rw = op.get("runway")
+        if rw in runway_summary:
+            prev = runway_summary[rw].get("status")
+            if prev == "LANDING" and op.get("action") != "LANDING":
+                continue
+            runway_summary[rw] = {
+                "status": op.get("action"),
+                "callsign": op.get("flight_label"),
+                "aircraft_type": op.get("aircraft_type")
+            }
+
     payload = {
-        "active_runway": runway,
-        "action": action,
-        "callsign": callsign,
-        "aircraft_type": aircraft_type,
-        "route": route,
+        "active_runway": primary_rw,
+        "action": primary_act,
+        "callsign": primary_call,
+        "aircraft_type": primary_type,
+        "route": primary_route,
         "timestamp": int(time.time()),
         "updated_time": time.strftime("%I:%M:%S%p"),
         "tracked_count": tracked_count,
-        "active_operations": active_ops,
+        "active_operations": ops,
+        "runway_summary": runway_summary,
         "weather": weather,
         "runway_roles": roles,
         "runway_roles_summary": roles["summary"]
@@ -868,10 +901,11 @@ def fetch_msp_traffic():
     print(f"  -> Tracking {len(states)} aircraft. Checking runway tubes...")
     active_events = 0
 
+    now_ts = time.time()
+    matched_ops = []
+    freshly_matched_keys = set()
+
     # Parse each aircraft state vector:
-    # OpenSky State Vector indices:
-    # [0] icao24 (hex), [1] callsign, [5] longitude, [6] latitude,
-    # [7] baro_altitude (m), [9] velocity (m/s), [10] true_track (deg), [11] vertical_rate (m/s)
     for plane in states:
         icao24 = str(plane[0]).strip() if plane[0] else None
         raw_callsign = str(plane[1]).strip() if plane[1] else "UNKNOWN"
@@ -929,10 +963,61 @@ def fetch_msp_traffic():
         print(f"  ✈  MATCH! [{readable_ac_type}] {flight_str} {route_display} | "
               f"{action} on {assigned_runway} | Spd: {speed_kts}kts, Alt: {alt_ft}ft")
         
-        write_state(assigned_runway, action, flight_str, readable_ac_type, flight_route, tracked_count=len(states))
+        normalized_act = "TAKEOFF" if "TAKING" in action else action
+        op_dict = {
+            "runway": assigned_runway,
+            "action": normalized_act,
+            "callsign": raw_callsign,
+            "flight_label": flight_str,
+            "aircraft_type": readable_ac_type,
+            "route": flight_route,
+            "speed_kts": speed_kts,
+            "altitude_ft": alt_ft
+        }
+        op_key = f"{assigned_runway}_{raw_callsign}_{normalized_act}"
+        freshly_matched_keys.add(op_key)
+        HELD_OPERATIONS[op_key] = {
+            "op": op_dict,
+            "expires_at": now_ts + 25.0
+        }
+        matched_ops.append(op_dict)
 
-    # When no active takeoffs/landings are matched, reset state to idle
-    if active_events == 0:
+    # Clean up expired held operations, and preserve unexpired active operations
+    for op_key, held in list(HELD_OPERATIONS.items()):
+        if now_ts >= held["expires_at"]:
+            del HELD_OPERATIONS[op_key]
+        elif op_key not in freshly_matched_keys:
+            matched_ops.append(held["op"])
+
+    # Airport Operational Flow Constraint
+    VALID_FLOWS = [
+        {"30R", "30L"},  # Parallel NW flow
+        {"12L", "12R"},  # Parallel SE flow
+        {"4"},           # Crosswind NE
+        {"22"},          # Crosswind SW
+        {"17"},          # North-South S
+        {"35"}           # North-South N
+    ]
+    if len(matched_ops) > 1:
+        best_matches = []
+        best_count = 0
+        for flow in VALID_FLOWS:
+            matches = [op for op in matched_ops if op["runway"] in flow]
+            if len(matches) > best_count:
+                best_count = len(matches)
+                best_matches = matches
+        matched_ops = best_matches if best_matches else [matched_ops[0]]
+
+        # Purge held operations outside winning flow
+        winning_runways = {op["runway"] for op in matched_ops}
+        for op_key in list(HELD_OPERATIONS.keys()):
+            rw = op_key.split("_")[0]
+            if rw not in winning_runways:
+                del HELD_OPERATIONS[op_key]
+
+    if matched_ops:
+        write_state("NONE", "ACTIVE", "", "NONE", "NONE", tracked_count=len(states), active_operations=matched_ops)
+    else:
         print("  -> No active operations detected right now.")
         write_state("NONE", "IDLE", "", "NONE", "NONE", tracked_count=len(states))
 

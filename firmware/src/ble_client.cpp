@@ -99,28 +99,23 @@ static bool processPayloadJson(const String& json_str, DisplayTelemetryData& out
         return false;
     }
 
-    // 1. Reset runways and apply updated state
-    resetAllRunwaysToIdle();
-
-    JsonObject runway_summary = doc["runway_summary"];
-    if (!runway_summary.isNull()) {
-        for (JsonPair kv : runway_summary) {
-            const char* rw_name = kv.key().c_str();
-            const char* status = kv.value()["status"] | "IDLE";
-            setRunwayState(rw_name, status, 0.5f);
-        }
-    }
-
-    // 2. Refine runway animations and parse active operations
+    // 1. Process active operations and maintain continuous comet glides
+    bool runway_has_active_op[4] = {false, false, false, false};
     out_telemetry.flight_count = 0;
     out_telemetry.tracked_count = doc["tracked_count"] | 0;
 
     JsonArray ops = doc["active_operations"];
-    if (!ops.isNull()) {
+    if (!ops.isNull() && ops.size() > 0) {
         for (JsonObject op : ops) {
             const char* rw = op["runway"] | "";
             const char* action = op["action"] | "IDLE";
             float progress = op["progress"] | 0.5f;
+
+            int rw_idx = getRunwayIndex(rw);
+            if (rw_idx >= 0) {
+                runway_has_active_op[rw_idx] = true;
+            }
+
             setRunwayState(rw, action, progress);
 
             if (out_telemetry.flight_count < MAX_TRACKED_FLIGHTS) {
@@ -132,6 +127,14 @@ static bool processPayloadJson(const String& json_str, DisplayTelemetryData& out
                 strncpy(f.route, op["route"] | "", sizeof(f.route) - 1);
                 out_telemetry.flight_count++;
             }
+        }
+    }
+
+    // Set any runway that does not have an active flight operation to IDLE
+    // without clobbering active gliding comets.
+    for (int i = 0; i < 4; i++) {
+        if (!runway_has_active_op[i]) {
+            setRunwayIdle(i);
         }
     }
 

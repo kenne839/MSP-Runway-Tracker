@@ -103,6 +103,23 @@ void initLeds() {
 #endif
 }
 
+int getRunwayIndex(const char* runway_name) {
+    if (!runway_name) return -1;
+    for (int i = 0; i < 4; i++) {
+        if (strcmp(runways[i].name_start, runway_name) == 0 ||
+            strcmp(runways[i].name_end, runway_name) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+void setRunwayIdle(int runway_idx) {
+    if (runway_idx >= 0 && runway_idx < 4) {
+        runways[runway_idx].state = RW_STATE_IDLE;
+    }
+}
+
 void resetAllRunwaysToIdle() {
     for (int i = 0; i < 4; i++) {
         runways[i].state = RW_STATE_IDLE;
@@ -127,7 +144,7 @@ void setRunwayState(const char* runway_name, const char* action_str, float progr
     RunwayOpState op = RW_STATE_IDLE;
     if (strcmp(action_str, "LANDING") == 0) {
         op = RW_STATE_LANDING;
-    } else if (strcmp(action_str, "TAKEOFF") == 0) {
+    } else if (strcmp(action_str, "TAKEOFF") == 0 || strcmp(action_str, "TAKING OFF") == 0) {
         op = RW_STATE_TAKEOFF;
     }
 
@@ -153,32 +170,36 @@ void setRunwayState(const char* runway_name, const char* action_str, float progr
     for (int i = 0; i < 4; i++) {
         RunwaySegment& r = runways[i];
 
-        // Aircraft matching start threshold (e.g. 12R, 30R, 22, 35)
-        if (strcmp(r.name_start, runway_name) == 0) {
-            bool state_changed = (r.state != op || !r.moving_forward);
-            r.state = op;
-            r.moving_forward = true; // Rollout moves from start_idx -> end_idx
-            r.speed_norm = 0.006f;   // 5.0s constant physical linear speed
-            r.was_recently_used = true;
-            r.recent_forward = true;
-            if (state_changed) {
-                r.comet_norm = 0.0f; // Start comet at touchdown/takeoff threshold
-            }
+        bool is_start = (strcmp(r.name_start, runway_name) == 0);
+        bool is_end   = (strcmp(r.name_end, runway_name) == 0);
+
+        if (!is_start && !is_end) {
+            continue;
+        }
+
+        // Aviation Rule: On the exact same physical runway strip, LANDING has absolute priority over TAKEOFF.
+        // If the strip is currently animating an arrival rollout, do not interrupt it with a departure comet.
+        if (r.state == RW_STATE_LANDING && op == RW_STATE_TAKEOFF) {
             return;
         }
-        // Aircraft matching end threshold (e.g. 30L, 12L, 4, 17)
-        else if (strcmp(r.name_end, runway_name) == 0) {
-            bool state_changed = (r.state != op || r.moving_forward);
-            r.state = op;
-            r.moving_forward = false; // Rollout moves from end_idx -> start_idx
-            r.speed_norm = 0.006f;    // 5.0s constant physical linear speed
-            r.was_recently_used = true;
-            r.recent_forward = false;
-            if (state_changed) {
-                r.comet_norm = 0.0f; // Start comet at touchdown/takeoff threshold
-            }
-            return;
+
+        bool forward = is_start; // true: start_idx -> end_idx, false: end_idx -> start_idx
+        bool state_changed = (r.state != op || r.moving_forward != forward);
+
+        r.state = op;
+        r.moving_forward = forward;
+        r.speed_norm = 0.006f;   // 5.0s constant physical linear speed
+        r.was_recently_used = true;
+        r.recent_forward = forward;
+
+        // CRUCIAL STABILITY FIX:
+        // Only reset comet_norm to 0.0f when an operation genuinely changes or reverses.
+        // If the same operation is re-confirmed on subsequent polls, preserve comet_norm so the
+        // animation glides seamlessly down the runway without resetting every 1.5 seconds!
+        if (state_changed) {
+            r.comet_norm = 0.0f;
         }
+        return;
     }
 }
 

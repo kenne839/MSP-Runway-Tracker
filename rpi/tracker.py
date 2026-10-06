@@ -98,14 +98,19 @@ class TelemetryState:
         for op in active_ops:
             rw = op.get("runway")
             if rw in runway_summary:
+                prev_status = runway_summary[rw].get("status")
+                # Prioritize LANDING if multiple operations exist on the same runway
+                if prev_status == "LANDING" and op.get("action") != "LANDING":
+                    continue
                 runway_summary[rw] = {
                     "status": op.get("action"),
                     "callsign": op.get("flight_label"),
                     "aircraft_type": op.get("aircraft_type")
                 }
 
-        # Select primary operation (first active or closest to threshold)
-        primary = active_ops[0] if active_ops else None
+        # Select primary operation (prioritize LANDING over TAKEOFF)
+        landings = [op for op in active_ops if op.get("action") == "LANDING"]
+        primary = landings[0] if landings else (active_ops[0] if active_ops else None)
 
         current_roles = runway_roles or {
             "landing": None,
@@ -170,6 +175,9 @@ class TelemetryTracker:
 
         # Multi-poll aircraft state history (tracks ground-to-air departure transitions)
         self._ground_aircraft = {}  # icao24 -> {"seen_at": ts, "lat": lat, "lon": lon, "callsign": callsign}
+
+        # Active flight operations hysteresis hold cache (bridges rollout deceleration and telemetry drops)
+        self._held_operations = {}  # op_key -> {"op": dict, "expires_at": float}
 
         # Network outage resilience & rate-limit tracking
         self.internet_online = True
@@ -360,6 +368,7 @@ class TelemetryTracker:
     def _process_aircraft_list(self, aircraft_list: list[dict], source_label: str):
         now_ts = time.time()
         active_operations = []
+        freshly_matched_keys = set()
 
         # 0. Track ground/taxi traffic at KMSP for multi-poll transition tracking
         for ac in aircraft_list:
@@ -451,10 +460,24 @@ class TelemetryTracker:
                 "lat": round(lat, 5),
                 "lon": round(lon, 5)
             }
+            op_key = f"{op['runway']}_{op['callsign']}_{op['action']}"
+            freshly_matched_keys.add(op_key)
+            self._held_operations[op_key] = {
+                "op": op,
+                "expires_at": now_ts + 25.0
+            }
             active_operations.append(op)
 
             print(f"  ✈ MATCH! [{aircraft_type}] {flight_label} | {action} on {rw_match['runway']} | "
                   f"Prog: {int(rw_match['t_progress']*100)}% | Spd: {speed_kts}kts, Alt: {alt_ft}ft")
+
+        # Clean up expired held operations, and preserve unexpired active operations
+        # to bridge telemetry drops, rollout deceleration, and OpenSky polling jitter.
+        for op_key, held in list(self._held_operations.items()):
+            if now_ts >= held["expires_at"]:
+                del self._held_operations[op_key]
+            elif op_key not in freshly_matched_keys:
+                active_operations.append(held["op"])
 
         # 5. Airport Operational Flow Constraint:
         # Enforce that only 1 single runway OR 1 parallel pair (12L/12R or 30R/30L) is active at once.
@@ -477,6 +500,13 @@ class TelemetryTracker:
                         best_score = score
                         best_matches = matches
             active_operations = best_matches if best_matches else [active_operations[0]]
+
+            # Purge held operations that do not belong to the winning flow
+            winning_runways = {op["runway"] for op in active_operations}
+            for op_key in list(self._held_operations.keys()):
+                rw = op_key.split("_")[0]
+                if rw not in winning_runways:
+                    del self._held_operations[op_key]
 
         # 6. Update Runway Operational Role Tracking (Arrivals vs Departures)
         for op in active_operations:

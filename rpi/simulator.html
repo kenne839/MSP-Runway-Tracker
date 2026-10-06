@@ -582,12 +582,22 @@ const PCB_LEDS = [
                         route: op.route
                     }));
                     for (let seg of RUNWAYS) {
-                        const op = data.active_operations.find(o => o.runway === seg.name_start || o.runway === seg.name_end);
-                        if (op) {
+                        const matchingOps = data.active_operations.filter(o => o.runway === seg.name_start || o.runway === seg.name_end);
+                        if (matchingOps.length > 0) {
+                            // On the same physical strip, LANDING has absolute priority over TAKEOFF
+                            const op = matchingOps.find(o => o.action === "LANDING") || matchingOps[0];
+                            const targetForward = (op.runway === seg.name_start);
+                            const stateChanged = (seg.state !== op.action || seg.moving_forward !== targetForward);
+
                             seg.state = op.action;
-                            seg.moving_forward = (op.runway === seg.name_start);
+                            seg.moving_forward = targetForward;
                             seg.was_recently_used = true;
-                            seg.recent_forward = seg.moving_forward;
+                            seg.recent_forward = targetForward;
+
+                            // Preserve smooth comet progress across polls when operation hasn't changed
+                            if (stateChanged) {
+                                seg.comet_norm = 0.0;
+                            }
                         } else {
                             seg.state = "IDLE";
                         }
@@ -598,7 +608,6 @@ const PCB_LEDS = [
                     activeFlightEvents = [];
                     for (let seg of RUNWAYS) {
                         seg.state = "IDLE";
-                        seg.comet_norm = 0.0;
                     }
                 }
             } catch (e) {

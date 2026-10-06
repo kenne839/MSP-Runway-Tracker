@@ -28,6 +28,8 @@ struct RunwaySegment {
 
 void initLeds();
 void setRunwayState(const char* runway_name, const char* action_str, float progress = 0.5f);
+void setRunwayIdle(int runway_idx);
+int getRunwayIndex(const char* runway_name);
 void resetAllRunwaysToIdle();
 void renderRunwayAnimations();
 void showConnectionStatusLed(bool connected);
