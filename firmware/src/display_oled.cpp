@@ -264,12 +264,13 @@ void renderDisplayLoop() {
         return;
     }
 
-    // Allow up to 65 seconds (two 30s OpenSky poll cycles + buffer) before declaring link lost
-    bool is_stale = has_received_initial_data && (now - last_telemetry_rx_time > 65000);
+    // Synchronized link loss timeout: if offline > LINK_LOSS_IDLE_TIMEOUT_MS (45s), declare link lost
+    bool is_stale = has_received_initial_data && (now - last_telemetry_rx_time > LINK_LOSS_IDLE_TIMEOUT_MS);
 
     if (is_stale) {
         // Expire active flights so old landing/takeoff events are not displayed
         current_data.flight_count = 0;
+        current_data.link_online = false;
     }
 
     bool has_active_flights = (current_data.flight_count > 0 && !is_stale);

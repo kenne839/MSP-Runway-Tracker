@@ -495,7 +495,8 @@ class TelemetryTracker:
             for flow in VALID_FLOWS:
                 matches = [op for op in active_operations if op["runway"] in flow]
                 if matches:
-                    score = (100 - len(matches) * 50) + sum(m["cross_track_m"] for m in matches) / len(matches)
+                    fresh_count = sum(1 for m in matches if f"{m['runway']}_{m['callsign']}_{m['action']}" in freshly_matched_keys)
+                    score = (100 - fresh_count * 60 - len(matches) * 20) + sum(m["cross_track_m"] for m in matches) / len(matches)
                     if score < best_score:
                         best_score = score
                         best_matches = matches

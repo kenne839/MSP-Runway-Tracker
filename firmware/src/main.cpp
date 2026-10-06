@@ -84,7 +84,18 @@ void loop() {
     }
 #endif
 
-    // 3. Render OLED display (handles 3-second multi-flight cycling and idle state)
+    // 3. Link loss watchdog: If link is lost for >45s, remove active operations and return to IDLE
+    if (telemetry_data.last_rx_millis > 0 && (millis() - telemetry_data.last_rx_millis > LINK_LOSS_IDLE_TIMEOUT_MS)) {
+        if (telemetry_data.flight_count > 0 || telemetry_data.link_online) {
+            Serial.println(F("[Watchdog] Telemetry link offline > 45s. Removing active runway events to IDLE."));
+            telemetry_data.flight_count = 0;
+            telemetry_data.link_online = false;
+            resetAllRunwaysToIdle();
+            updateTelemetryData(telemetry_data);
+        }
+    }
+
+    // 4. Render OLED display (handles 3-second multi-flight cycling and idle state)
     renderDisplayLoop();
 
     // 4. User button press detection (SW1 / GPIO0)

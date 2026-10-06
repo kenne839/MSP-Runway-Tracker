@@ -85,6 +85,10 @@
 // Polling interval in milliseconds
 #define TELEMETRY_POLL_MS   1500
 
+// Link loss timeout: if no telemetry packet arrives for 45 seconds,
+// transition active flight events and runways to IDLE while awaiting reconnection.
+#define LINK_LOSS_IDLE_TIMEOUT_MS  45000
+
 // =============================================================================
 // BLE (BLUETOOTH LOW ENERGY) CONFIGURATION (Office Board)
 // =============================================================================
