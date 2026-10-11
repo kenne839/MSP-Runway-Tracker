@@ -29,6 +29,9 @@ rpi/
 ├── metadata.py            # Airlines, airframes, multi-tier routes, transponder resolver
 ├── tracker.py             # Polling engine, kinematic filter, thread-safe state store
 ├── server.py              # Multi-threaded HTTP server & web dashboard
+├── solar.py               # NOAA solar elevation ephemeris & circadian smoothstep curve
+├── theme.py               # Thread-safe LED theme manager, presets, and persistence
+├── theme_cli.py           # Command-line theme and solar-sync configuration tool
 ├── main.py                # Service launcher entry point
 ├── requirements.txt       # Python dependencies
 └── service/
@@ -45,7 +48,7 @@ msp_aircraft_db.json       # Persistent local Mode S hex -> airframe database
 ### 1. Clone & Install Dependencies
 ```bash
 cd /home/pi
-git clone https://github.com/<your-username>/MSP-RUNWAY-TRACKER.git msp-runway-tracker
+git clone https://github.com/kenne839/MSP-Runway-Tracker.git msp-runway-tracker
 cd msp-runway-tracker
 pip install -r rpi/requirements.txt
 ```
@@ -57,7 +60,32 @@ python3 -m rpi.main
 The server will start listening on port `8080`:
 * **ESP32 JSON Endpoint:** `http://<raspberry-pi-ip>:8080/api/runway_state`
 * **Web Dashboard:** `http://<raspberry-pi-ip>:8080/`
+* **Theme API:** `GET / POST http://<raspberry-pi-ip>:8080/api/theme`
+* **Presets API:** `http://<raspberry-pi-ip>:8080/api/theme/presets`
 * **Health Check:** `http://<raspberry-pi-ip>:8080/api/health`
+
+---
+
+## LED Theme & Solar-Sync CLI Management
+
+You can inspect or adjust LED colors, brightness, and solar circadian tracking directly from the command line over SSH:
+
+```bash
+# View active theme, sun elevation angle, and circadian brightness:
+python3 -m rpi.theme_cli --show
+
+# Enable automatic solar-adaptive circadian brightness:
+python3 -m rpi.theme_cli --solar-sync
+
+# Return to manual brightness control:
+python3 -m rpi.theme_cli --no-solar-sync --brightness 24
+
+# Switch to a preset:
+python3 -m rpi.theme_cli --preset cyberpunk
+
+# Custom colors (Touchdown head white, Rollout tail cyan):
+python3 -m rpi.theme_cli --landing-head "#FFFFFF" --landing-tail "#00E5FF"
+```
 
 ---
 

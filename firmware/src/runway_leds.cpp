@@ -1,4 +1,5 @@
 #include "runway_leds.h"
+#include "theme_manager.h"
 
 static CRGB leds[NUM_LEDS];
 static bool has_had_event = true; // Default true so the prevailing runway (30R) slowly strobes from power-on
@@ -52,27 +53,35 @@ bool hasHadEventOccurred() {
 
 #if defined(BOARD_MODE_DEVKIT)
 static void setDevKitRgb(uint8_t r, uint8_t g, uint8_t b) {
+    uint8_t mb = getThemeConfig().master_brightness;
+    // Scale r, g, b by master_brightness (clamped 5 to 48 / safe range)
+    uint8_t sr = (r > 0 && mb > 0) ? (uint8_t)max(1, (r * mb) / 255) : 0;
+    uint8_t sg = (g > 0 && mb > 0) ? (uint8_t)max(1, (g * mb) / 255) : 0;
+    uint8_t sb = (b > 0 && mb > 0) ? (uint8_t)max(1, (b * mb) / 255) : 0;
+
     // Drive both GPIO 48 (DevKitC-1 v1.0) and GPIO 38 (DevKitC-1 v1.1 / clones)
     // using native ESP32-S3 hardware WS2812 pulse stream
-    neopixelWrite(48, r, g, b);
-    neopixelWrite(38, r, g, b);
+    neopixelWrite(48, sr, sg, sb);
+    neopixelWrite(38, sr, sg, sb);
 #ifdef RGB_BUILTIN
-    neopixelWrite(RGB_BUILTIN, r, g, b);
+    neopixelWrite(RGB_BUILTIN, sr, sg, sb);
 #endif
 
-    leds[0] = CRGB(r, g, b);
+    leds[0] = CRGB(sr, sg, sb);
     FastLED.show();
 }
 #endif
 
 void initLeds() {
+    uint8_t init_brightness = getThemeConfig().master_brightness;
 #if defined(BOARD_MODE_DEVKIT)
     // Enable RGB power-gate pin if present on this board variant
     pinMode(47, OUTPUT);
     digitalWrite(47, HIGH);
 
     FastLED.addLeds<WS2812B, PIN_LED_DATA, GRB>(leds, NUM_LEDS);
-    FastLED.setBrightness(MAX_LED_BRIGHTNESS);
+    FastLED.setMaxPowerInVoltsAndMilliamps(5, 1200);
+    FastLED.setBrightness(init_brightness);
 
     // Immediately clear uninitialized power-on white glow
     setDevKitRgb(0, 0, 0);
@@ -88,7 +97,8 @@ void initLeds() {
     setDevKitRgb(0, 0, 0);         // Off
 #else
     FastLED.addLeds<WS2812B, PIN_LED_DATA, GRB>(leds, NUM_LEDS);
-    FastLED.setBrightness(MAX_LED_BRIGHTNESS);
+    FastLED.setMaxPowerInVoltsAndMilliamps(5, 1200);
+    FastLED.setBrightness(init_brightness);
     FastLED.clear();
     FastLED.show();
 
@@ -241,7 +251,8 @@ void renderRunwayAnimations() {
 
 #if defined(BOARD_MODE_DEVKIT)
     // DevKit Test Mode:
-    // Single onboard RGB LED: Strobes during active operations (Landing=Orange, Takeoff=Blue)
+    // Single onboard RGB LED: Strobes during active operations using dynamic theme palette
+    const LedThemeConfig& theme = getThemeConfig();
     RunwayOpState active_op = RW_STATE_IDLE;
     for (int r = 0; r < 4; r++) {
         if (runways[r].state == RW_STATE_LANDING) {
@@ -253,40 +264,46 @@ void renderRunwayAnimations() {
     }
 
     if (active_op == RW_STATE_LANDING) {
-        // Aviation Approach Strobe: Double-flash Orange every 750ms
+        // Aviation Approach Strobe: Double-flash theme Landing color every 750ms
+        CRGB l_col = CRGB(theme.landing_tail_rgb);
         uint32_t cycle = now % 750;
         if (cycle < 60) {
-            setDevKitRgb(255, 120, 0); // Flash 1 (Bright Orange)
+            setDevKitRgb(l_col.r, l_col.g, l_col.b); // Flash 1
         } else if (cycle < 130) {
-            setDevKitRgb(20, 8, 0);    // Dip
+            setDevKitRgb(l_col.r / 10, l_col.g / 10, l_col.b / 10); // Dip
         } else if (cycle < 190) {
-            setDevKitRgb(255, 120, 0); // Flash 2 (Bright Orange)
+            setDevKitRgb(l_col.r, l_col.g, l_col.b); // Flash 2
         } else {
-            setDevKitRgb(15, 6, 0);    // Low baseline approach glow
+            setDevKitRgb(l_col.r / 16, l_col.g / 16, l_col.b / 16); // Low baseline approach glow
         }
     } else if (active_op == RW_STATE_TAKEOFF) {
-        // Aviation Departure Strobe: Crisp Blue flash every 500ms
+        // Aviation Departure Strobe: Crisp theme Takeoff flash every 500ms
+        CRGB t_col = CRGB(theme.takeoff_tail_rgb);
         uint32_t cycle = now % 500;
         if (cycle < 80) {
-            setDevKitRgb(0, 140, 255); // Flash (Bright Blue)
+            setDevKitRgb(t_col.r, t_col.g, t_col.b); // Flash
         } else if (cycle < 160) {
-            setDevKitRgb(0, 30, 80);   // Decay
+            setDevKitRgb(t_col.r / 6, t_col.g / 6, t_col.b / 6); // Decay
         } else {
-            setDevKitRgb(0, 6, 20);    // Low baseline departure glow
+            setDevKitRgb(t_col.r / 16, t_col.g / 16, t_col.b / 16); // Low baseline departure glow
         }
     } else {
-        // Idle mode: Silky smooth amber breathing pulse at 50 FPS
+        // Idle mode: Silky smooth breathing pulse using theme afterburner/takeoff color
         if (has_had_event) {
-            float breath = (sin(now / 600.0f) + 1.0f) * 0.5f; // 0.0 to 1.0
-            uint8_t br = (uint8_t)(breath * 24.0f) + 2;
-            setDevKitRgb(br, (br * 6) / 10, 0); // Warm idle amber breathing
+            CRGB idle_base = CRGB(theme.takeoff_tail_rgb);
+            float breath = 0.15f + 0.85f * ((sin(now / 600.0f) + 1.0f) * 0.5f); // 0.15 to 1.0
+            uint8_t r = (uint8_t)(idle_base.r * breath);
+            uint8_t g = (uint8_t)(idle_base.g * breath);
+            uint8_t b = (uint8_t)(idle_base.b * breath);
+            setDevKitRgb(r, g, b);
         } else {
-            setDevKitRgb(0, 2, 8); // Dim standby indicator
+            setDevKitRgb(0, 10, 40); // Standby indicator (scales with brightness)
         }
     }
     return;
 #else
     FastLED.clear();
+    const LedThemeConfig& theme = getThemeConfig();
 
     // Check if any flight is actively operating
     bool has_active_flight = false;
@@ -305,8 +322,12 @@ void renderRunwayAnimations() {
 
         if (seg.state == RW_STATE_IDLE) {
             // Ambient idle runway: dim boundary threshold lights at each end
-            leds[seg.start_idx] = CRGB(6, 9, 14);
-            leds[seg.end_idx]   = CRGB(6, 9, 14);
+            CRGB idle_bound = CRGB(theme.idle_threshold_rgb);
+            if (idle_bound.r == 0 && idle_bound.g == 0 && idle_bound.b == 0) {
+                idle_bound = CRGB(6, 9, 14);
+            }
+            leds[seg.start_idx] = idle_bound;
+            leds[seg.end_idx]   = idle_bound;
 
             if (seg.crossing_idx >= 0) {
                 leds[seg.crossing_idx] = CRGB(4, 5, 8);
@@ -360,9 +381,9 @@ void renderRunwayAnimations() {
                     CRGB led_color;
 
                     if (seg.state == RW_STATE_LANDING) {
-                        // Landing Comet: Crisp White Head + Emerald / Cyan Rollout Tail
-                        CRGB head_col = CRGB(255, 255, 255);
-                        CRGB mid_col  = CRGB(60, 240, 140);
+                        // Landing Comet: Touchdown Strobe Head + Rollout Glidepath Tail
+                        CRGB head_col = CRGB(theme.landing_head_rgb);
+                        CRGB mid_col  = CRGB(theme.landing_tail_rgb);
                         if (u < 0.15f) {
                             led_color = head_col;
                         } else if (u < 0.50f) {
@@ -373,9 +394,9 @@ void renderRunwayAnimations() {
                             led_color = blend(mid_col, CRGB::Black, (uint8_t)(f * 255));
                         }
                     } else {
-                        // Takeoff Comet: Warm White Head + Amber / Gold Flame Tail
-                        CRGB head_col = CRGB(255, 255, 220);
-                        CRGB mid_col  = CRGB(255, 140, 0);
+                        // Takeoff Comet: Acceleration Roll Head + Afterburner Flame Tail
+                        CRGB head_col = CRGB(theme.takeoff_head_rgb);
+                        CRGB mid_col  = CRGB(theme.takeoff_tail_rgb);
                         if (u < 0.15f) {
                             led_color = head_col;
                         } else if (u < 0.50f) {
@@ -392,10 +413,12 @@ void renderRunwayAnimations() {
             }
 
             // Illuminate runway threshold base
+            CRGB thresh_col = (seg.state == RW_STATE_LANDING) ? CRGB(theme.landing_tail_rgb) : CRGB(theme.takeoff_tail_rgb);
+            thresh_col.nscale8_video(40);
             if (seg.moving_forward) {
-                addLedColor(seg.start_idx, (seg.state == RW_STATE_LANDING) ? CRGB(0, 40, 20) : CRGB(40, 20, 0));
+                addLedColor(seg.start_idx, thresh_col);
             } else {
-                addLedColor(seg.end_idx,   (seg.state == RW_STATE_LANDING) ? CRGB(0, 40, 20) : CRGB(40, 20, 0));
+                addLedColor(seg.end_idx,   thresh_col);
             }
 
             if (seg.crossing_idx >= 0) {

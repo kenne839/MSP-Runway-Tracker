@@ -3,12 +3,31 @@
 #if !defined(BOARD_MODE_BLE)
 
 #include "runway_leds.h"
+#include "theme_manager.h"
 
 static HTTPClient http;
 static WiFiClient client;
 static uint32_t last_poll_time = 0;
 static uint32_t current_poll_interval = TELEMETRY_POLL_MS;
 static uint8_t consecutive_http_errors = 0;
+
+static uint32_t frame_count = 0;
+static uint32_t last_fps_time = 0;
+static uint8_t current_fps = 30;
+
+void recordFrameRendered() {
+    frame_count++;
+    uint32_t now = millis();
+    if (now - last_fps_time >= 1000) {
+        current_fps = (uint8_t)frame_count;
+        frame_count = 0;
+        last_fps_time = now;
+    }
+}
+
+uint8_t getCurrentFps() {
+    return current_fps;
+}
 
 void initNetwork() {
     Serial.print(F("[WiFi] Connecting to SSID: "));
@@ -66,6 +85,12 @@ bool pollTelemetryData(DisplayTelemetryData& out_telemetry) {
     // 1.2s timeout prevents long stalls on LAN, keeping LED animations smooth
     http.setTimeout(1200);
 
+    // Send ESP32 Health Heartbeat to Raspberry Pi
+    http.addHeader("X-ESP32-RSSI", String(WiFi.RSSI()));
+    http.addHeader("X-ESP32-Heap", String(ESP.getFreeHeap()));
+    http.addHeader("X-ESP32-Uptime", String((uint32_t)(millis() / 1000)));
+    http.addHeader("X-ESP32-FPS", String(current_fps));
+
     int httpCode = http.GET();
     if (httpCode != HTTP_CODE_OK) {
         consecutive_http_errors++;
@@ -101,6 +126,11 @@ bool pollTelemetryData(DisplayTelemetryData& out_telemetry) {
         Serial.print(F("[JSON] Deserialization error: "));
         Serial.println(error.f_str());
         return false;
+    }
+
+    // Apply Dynamic LED Theme if present (zero-lag version dirty check)
+    if (!doc["theme"].isNull()) {
+        applyThemeIfPresent(doc["theme"]);
     }
 
     // 1. Process active operations and maintain continuous comet glides
@@ -171,6 +201,18 @@ bool pollTelemetryData(DisplayTelemetryData& out_telemetry) {
 
     // Update fallback summary string of recently active runways
     getRecentlyActiveRunwaysStr(out_telemetry.active_runways_summary, sizeof(out_telemetry.active_runways_summary));
+
+    // 6. Parse network status & OpenSky quota health
+    JsonObject net = doc["network"];
+    if (!net.isNull()) {
+        out_telemetry.rate_limited = net["rate_limited"] | false;
+        out_telemetry.api_online = net["online"] | true;
+        out_telemetry.requests_today = net["requests_today"] | 0;
+        out_telemetry.quota_limit = net["quota_limit"] | 4000;
+    } else {
+        out_telemetry.rate_limited = false;
+        out_telemetry.api_online = true;
+    }
 
     return true;
 }

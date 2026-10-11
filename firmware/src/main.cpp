@@ -2,11 +2,13 @@
 #include "config.h"
 #include "runway_leds.h"
 #include "display_oled.h"
+#include "theme_manager.h"
 
 #if defined(BOARD_MODE_BLE)
 #include "ble_client.h"
 #else
 #include "network_client.h"
+#include "telnet_server.h"
 static uint32_t last_wifi_check = 0;
 #endif
 
@@ -38,7 +40,9 @@ void setup() {
     showBootScreen("Starting System...");
     delay(400);
 
-    // 3. Initialize WS2812B LED array (84 LEDs on GPIO4)
+    // 3. Initialize Theme Manager & WS2812B LEDs
+    showBootScreen("Loading LED Theme...");
+    initThemeManager();
     showBootScreen("Initializing LEDs...");
     initLeds();
     delay(400);
@@ -52,6 +56,7 @@ void setup() {
 #else
     showBootScreen("Connecting Wi-Fi...");
     initNetwork();
+    initTelnetServer();
     showBootScreen("Ready! Polling Pi...");
     delay(600);
 #endif
@@ -66,6 +71,10 @@ void setup() {
 void loop() {
     // 1. Continuous LED Animation Rendering (~33 FPS, comet or idle yellow strobe)
     renderRunwayAnimations();
+#if !defined(BOARD_MODE_BLE)
+    recordFrameRendered();
+    handleTelnetServer();
+#endif
 
     // 2. Poll for new telemetry (BLE from Office PC or HTTP from Raspberry Pi)
 #if defined(BOARD_MODE_BLE)

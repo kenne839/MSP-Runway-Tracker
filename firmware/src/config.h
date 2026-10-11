@@ -35,6 +35,7 @@
 #define PIN_LED_DATA        PIN_DEVKIT_RGB_LED
 #define NUM_LEDS            1
 #define MAX_LED_BRIGHTNESS  20   // Comfortable desktop viewing brightness (reduced 50% from 40 to eliminate glare)
+#define HARDWARE_MAX_SAFE_BRIGHTNESS 40
 #else
 // Custom PCB Hardware:
 // Level shifted 3.3V -> 5V via U87 SN74LVC1T45 driving 84 LEDs
@@ -42,7 +43,9 @@
 #define NUM_LEDS            84
 // Current & Thermal safety limit: 32/255 limits draw to ~0.6A worst-case for 84 LEDs (reduced 50% from 64)
 #define MAX_LED_BRIGHTNESS  32  
+#define HARDWARE_MAX_SAFE_BRIGHTNESS 48
 #endif  
+#define HARDWARE_MIN_SAFE_BRIGHTNESS 5  
 
 // =============================================================================
 // PHYSICAL RUNWAY LED MAPPING (Verified with PCB Component Designators U2 - U85)
@@ -74,13 +77,22 @@
 // NETWORK & TELEMETRY CONFIGURATION
 // =============================================================================
 
-// Wi-Fi Credentials
+#if __has_include("secrets.h")
+#include "secrets.h"
+#endif
+
+// Wi-Fi Credentials (Fallback placeholders for repo / CI)
+#ifndef WIFI_SSID
 #define WIFI_SSID           "YOUR_WIFI_SSID"
+#endif
+#ifndef WIFI_PASSWORD
 #define WIFI_PASSWORD       "YOUR_WIFI_PASSWORD"
+#endif
 
 // Raspberry Pi REST API Endpoint
-// Replace with your Raspberry Pi's local network IP address
+#ifndef PI_SERVER_URL
 #define PI_SERVER_URL       "http://192.168.1.150:8080/api/runway_state"
+#endif
 
 // Polling interval in milliseconds
 #define TELEMETRY_POLL_MS   1500

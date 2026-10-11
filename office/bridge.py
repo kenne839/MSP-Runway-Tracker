@@ -525,6 +525,10 @@ def main():
                         help=f"Embedded web server dashboard port (default: {default_port})")
     parser.add_argument("--no-web", action="store_true",
                         help="Disable the embedded web dashboard")
+    parser.add_argument("--brightness", "-b", type=int, default=None,
+                        help="Master LED brightness ceiling (5 to 48)")
+    parser.add_argument("--theme", "-t", type=str, default=None,
+                        help="Theme preset name (classic, cyberpunk, sapphire, sunset, night)")
 
     args = parser.parse_args()
 
@@ -536,6 +540,15 @@ def main():
         web_port=args.web_port,
         credentials=args.credentials
     )
+
+    # Apply custom theme or brightness if supplied on command line
+    theme_updates = {}
+    if args.theme:
+        theme_updates["preset"] = args.theme
+    if args.brightness is not None:
+        theme_updates["brightness"] = args.brightness
+    if theme_updates:
+        bridge.tracker.state.update_theme(theme_updates)
 
     try:
         asyncio.run(bridge.run(test_mode=args.test))

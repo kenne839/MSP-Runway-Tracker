@@ -72,6 +72,27 @@ Both boards feature a **3-Pin UART Header `J2`** for external USB-to-UART progra
 - **Real-Time ADS-B Polling:** Queries OpenSky Network for flights within the KMSP terminal airspace bounding box.
 - **Runway Vector Projection:** Accurately assigns aircraft to KMSP runways (`12L/30R`, `12R/30L`, `4/22`, `17/35`) using vector projection onto extended runway centerlines.
 - **Kinematic Gating:** Eliminates ground taxi traffic, stationary vehicles, and high-altitude overflights via ground speed, altitude, and vertical rate filters.
+- **Dynamic LED Theme Customization:**
+  - In-band JSON telemetry payload synchronizes theme colors and brightness across all displays.
+  - 5 curated color presets: Classic Emerald, Cyberpunk Neon, Midnight Sapphire, Sunset Flame, Night Vision.
+  - Granular RGB customization for touchdown strobe head, rollout tail, takeoff roll head, afterburner flame tail, and idle threshold indicators.
+  - Zero-lag version dirty-checking on ESP32 eliminates CPU overhead.
+  - Dedicated CLI tool ([`rpi/theme_cli.py`](rpi/theme_cli.py)) and Web UI controls.
+- **Solar-Adaptive Circadian LED Brightness:**
+  - Evaluates live sun elevation $\alpha(t)$ at KMSP via NOAA astronomical algorithms.
+  - Cubic Hermite Smoothstep transfer curve ($S(t) = 3t^2 - 2t^3$) seamlessly modulates brightness between a night floor ($8$) and day ceiling ($40$) based on dusk/dawn progression.
+  - **Flash Wear Protection:** Continuous circadian adjustments update volatile RAM only, ensuring infinite NVS flash lifespan.
+  - Interactive "☀️ Solar-Sync" toggle in web dashboard.
+- **Remote Wireless Telnet Diagnostics:**
+  - Live serial logging and telemetry stream over Wi-Fi on port `23` (`telnet <esp32-ip> 23`).
+  - Broadcasts rendering FPS, free heap, RSSI, and real-time theme switch events without USB tethering.
+- **OLED Screen Protection & Adaptive Layout:**
+  - Display blanking timeout prevents OLED burn-in during quiet airfield hours.
+  - Automatic wake-on-event triggers display instantly when traffic arrives or network warnings occur.
+  - Dynamic header shortening (`KMSP AIRPORT` &rarr; `KMSP`) guarantees zero text collision or screen overflow during quota or connection alerts.
+- **Bi-Directional Health Monitoring:**
+  - ESP32 includes RSSI, free heap, uptime, and FPS headers in HTTP requests.
+  - Raspberry Pi dashboard tracks live node health, lag detection, and OpenSky daily API quota with proactive backoff.
 - **Comprehensive Metadata Resolution:**
   - **Airlines:** Translates 3-letter ICAO callsign prefixes to commercial airline names (e.g., `DAL` &rarr; *Delta Air Lines*, `EDV` &rarr; *Endeavor Air*).
   - **Airframes:** Decodes transponder hex codes to readable aircraft types (e.g., `A21N` &rarr; *Airbus A321neo*, `B738` &rarr; *Boeing 737-800*).
@@ -85,15 +106,20 @@ Both boards feature a **3-Pin UART Header `J2`** for external USB-to-UART progra
 
 | Directory / File | Purpose |
 | :--- | :--- |
-| [`firmware/`](firmware/README.md) | ESP32-S3 PlatformIO C++ firmware with dual environments (`home_wifi` & `office_ble`). |
-| [`rpi/`](rpi/README.md) | Raspberry Pi 3 Model A+ telemetry service, REST API, web dashboard, and hardware simulator. |
+| [`firmware/`](firmware/README.md) | ESP32-S3 PlatformIO C++ firmware (`home_wifi`, `office_ble`, `devkit_wifi`). |
+| [`rpi/`](rpi/README.md) | Raspberry Pi telemetry service, REST API, web dashboard, and solar circadian engine. |
 | [`office/`](office/README.md) | Office PC BLE companion bridge (`bridge.py`) for wireless corporate desk setup. |
+| [`DYNAMIC_LED_ARCHITECTURE.md`](DYNAMIC_LED_ARCHITECTURE.md) | Comprehensive architecture guide for dynamic LED themes, circadian transfer curves, and flash endurance. |
+| [`HARDWARE_DEPLOYMENT_GUIDE.md`](HARDWARE_DEPLOYMENT_GUIDE.md) | End-to-end hardware deployment and verification guide. |
+| [`rpi/solar.py`](rpi/solar.py) | NOAA astronomical ephemeris and Hermite Smoothstep circadian brightness engine. |
+| [`rpi/theme.py`](rpi/theme.py) | Thread-safe LED theme manager with persistence and in-band telemetry injection. |
+| [`rpi/theme_cli.py`](rpi/theme_cli.py) | Command-line theme and solar-sync customization utility. |
 | [`script.py`](script.py) | Standalone Python telemetry script: polling loop, kinematic gating, runway matching, state export. |
 | [`seed_database.py`](seed_database.py) | Utility to download and parse OpenSky's official aircraft metadata database into local JSON cache. |
 | [`airlines.json`](airlines.json) | Static mapping of 3-letter ICAO airline designators to commercial operator names. |
 | [`airframes.json`](airframes.json) | Static mapping of ICAO aircraft designators to clean, readable names. |
 | [`msp_aircraft_db.json`](msp_aircraft_db.json) | Local persistent registry of 480k+ 24-bit ICAO transponder addresses mapped to type codes. |
-| [`runway_state.json`](runway_state.json) | Ephemeral output file updated every cycle with the latest detected operation. *(Ignored by git)* |
+| [`tests/`](tests/) | Unit test suite covering spatial projections, route resolution, solar ephemeris, and LED themes. |
 | [`requirements.txt`](requirements.txt) | Root Python dependencies. |
 
 ---

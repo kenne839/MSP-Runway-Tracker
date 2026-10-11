@@ -33,6 +33,13 @@ __pycache__/
 *.env
 credentials*.json
 *credentials*.json
+secrets.h
+*secrets.h
+
+# Dynamic runtime telemetry state & user theme overrides
+runway_state.json
+*led_theme.json
+led_theme.json
 
 # Local Office Bridge runtime files
 .ble_cache.json

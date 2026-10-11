@@ -31,6 +31,7 @@ from .metadata import MetadataResolver
 from .weather import get_current_weather
 from .atis import get_current_datis
 from .opensky_auth import OpenSkyAuth
+from .theme import ThemeManager
 
 import sys
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -56,6 +57,8 @@ class TelemetryState:
     """Thread-safe state container storing active flight operations, weather, and runway roles."""
     def __init__(self):
         self._lock = threading.Lock()
+        self._esp32_heartbeat = None
+        self.theme_manager = ThemeManager()
         self._state = {
             "timestamp": int(time.time()),
             "iso_time": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -81,12 +84,39 @@ class TelemetryState:
                 "summary": "RW: Standby",
                 "full_summary": "Standby / Waiting for Traffic"
             },
-            "runway_roles_summary": "RW: Standby"
+            "runway_roles_summary": "RW: Standby",
+            "theme": self.theme_manager.get_theme()
         }
 
     def get_snapshot(self) -> dict:
         with self._lock:
+            # Ensure latest theme is always attached
+            self._state["theme"] = self.theme_manager.get_theme()
             return json.loads(json.dumps(self._state))
+
+    def update_theme(self, updates: dict) -> dict:
+        new_theme = self.theme_manager.update_theme(updates)
+        with self._lock:
+            self._state["theme"] = new_theme
+        return new_theme
+
+    def get_theme(self) -> dict:
+        return self.theme_manager.get_theme()
+
+    def update_esp32_heartbeat(self, ip: str, rssi=None, heap=None, uptime=None, fps=None):
+        now_ts = int(time.time())
+        with self._lock:
+            node = {
+                "ip": ip,
+                "rssi": int(rssi) if rssi is not None else None,
+                "free_heap_kb": round(int(heap) / 1024, 1) if heap is not None else None,
+                "uptime_sec": int(uptime) if uptime is not None else None,
+                "fps": int(fps) if fps is not None else None,
+                "last_seen_ts": now_ts,
+                "online": True
+            }
+            self._esp32_heartbeat = node
+            self._state["esp32_node"] = node
 
     def update(self, tracked_count: int, active_ops: list[dict], source_name: str,
                weather: dict = None, runway_roles: dict = None, network_status: dict = None):
@@ -145,6 +175,11 @@ class TelemetryState:
             "network": current_network
         }
 
+        if self._esp32_heartbeat:
+            # Mark offline if last contact > 45s
+            self._esp32_heartbeat["online"] = (now_ts - self._esp32_heartbeat.get("last_seen_ts", 0)) < 45
+            new_state["esp32_node"] = self._esp32_heartbeat
+
         with self._lock:
             self._state = new_state
 
@@ -185,6 +220,11 @@ class TelemetryTracker:
         self.consecutive_failures = 0
         self.current_poll_interval = OPENSKY_POLL_INTERVAL
         self.opensky_lockout_until = 0.0
+
+        # OpenSky daily quota tracking & auto-backoff
+        self.daily_requests_count = 0
+        self.daily_reset_date = datetime.date.today()
+        self.quota_limit = 4000 if self.auth.is_authenticated() else 400
 
         auth_desc = self.auth.get_auth_status_str()
         print(f"TelemetryTracker initialized. [{auth_desc}] | Poll interval: {OPENSKY_POLL_INTERVAL}s")
@@ -228,6 +268,22 @@ class TelemetryTracker:
 
         headers = self.auth.get_headers()
         basic_auth = self.auth.get_basic_auth()
+
+        # Update daily requests counter (resets at local midnight)
+        today = datetime.date.today()
+        if today != self.daily_reset_date:
+            self.daily_requests_count = 0
+            self.daily_reset_date = today
+
+        self.daily_requests_count += 1
+
+        # Proactive Quota Protection: If using 85%+ of daily quota, back off polling interval
+        if self.quota_limit and self.daily_requests_count >= int(self.quota_limit * 0.85):
+            backoff_target = max(OPENSKY_POLL_INTERVAL, 40.0)
+            if self.current_poll_interval < backoff_target:
+                pct = (self.daily_requests_count / self.quota_limit) * 100
+                print(f"[{time.strftime('%X')}] ⚠️ Daily OpenSky quota at {pct:.1f}% ({self.daily_requests_count}/{self.quota_limit}). Auto-slowing poll to {backoff_target}s to prevent 429 lockout.")
+                self.current_poll_interval = backoff_target
 
         try:
             res = requests.get(OPENSKY_URL, params=MSP_BBOX, headers=headers, auth=basic_auth, timeout=10, verify=False)
@@ -315,6 +371,9 @@ class TelemetryTracker:
             net_status = {
                 "online": False,
                 "rate_limited": time.time() < self.opensky_lockout_until,
+                "requests_today": self.daily_requests_count,
+                "quota_limit": self.quota_limit,
+                "quota_percent": round((self.daily_requests_count / self.quota_limit) * 100, 1) if self.quota_limit else 100.0,
                 "last_successful_poll": self.last_successful_poll_ts,
                 "consecutive_failures": self.consecutive_failures
             }
@@ -579,4 +638,14 @@ class TelemetryTracker:
         # 7. Ingest live KMSP METAR surface weather
         current_weather = get_current_weather()
 
-        self.state.update(len(aircraft_list), active_operations, source_label, current_weather, runway_roles)
+        net_status = {
+            "online": True,
+            "rate_limited": False,
+            "requests_today": self.daily_requests_count,
+            "quota_limit": self.quota_limit,
+            "quota_percent": round((self.daily_requests_count / self.quota_limit) * 100, 1) if self.quota_limit else 0,
+            "last_successful_poll": self.last_successful_poll_ts,
+            "consecutive_failures": 0
+        }
+
+        self.state.update(len(aircraft_list), active_operations, source_label, current_weather, runway_roles, network_status=net_status)

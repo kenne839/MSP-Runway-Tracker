@@ -36,6 +36,10 @@ struct DisplayTelemetryData {
     bool has_had_event;
     bool link_online;
     uint32_t last_rx_millis;
+    bool rate_limited;
+    bool api_online;
+    int requests_today;
+    int quota_limit;
 };
 
 void initDisplay();

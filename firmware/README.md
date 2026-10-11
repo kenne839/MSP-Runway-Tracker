@@ -67,13 +67,16 @@ When no aircraft are in the active touchdown or departure corridors:
 
 ## Configuration Before Flashing
 
-Open [`src/config.h`](src/config.h) and update your Wi-Fi credentials and Raspberry Pi IP:
+To keep your personal Wi-Fi credentials out of git commits, create a `firmware/src/secrets.h` file (which is git-ignored):
 
 ```cpp
+#pragma once
 #define WIFI_SSID       "YourWiFiNetwork"
 #define WIFI_PASSWORD   "YourWiFiPassword"
 #define PI_SERVER_URL   "http://192.168.1.150:8080/api/runway_state"
 ```
+
+If `secrets.h` is not present, [`src/config.h`](src/config.h) falls back to default placeholder values.
 
 ---
 
@@ -82,31 +85,58 @@ Open [`src/config.h`](src/config.h) and update your Wi-Fi credentials and Raspbe
 ### Prerequisites
 * [VS Code](https://code.visualstudio.com/) with the **PlatformIO IDE** extension installed, or PlatformIO Core CLI (`pio`).
 
+### Available Environments
+* **`home_wifi`**: Production custom ESP32-S3 PCB (84 LEDs on GPIO4, dual-color OLED, Wi-Fi HTTP polling).
+* **`devkit_wifi`**: ESP32-S3 DevKit test board (onboard WS2812 RGB on GPIO 48/38, dual-color OLED on GPIO 1/2, Wi-Fi HTTP polling).
+* **`office_ble`**: Production custom PCB (84 LEDs, dual-color OLED, Pure BLE 5.0 Nordic UART Service).
+* **`devkit_ble`**: ESP32-S3 DevKit test board (onboard WS2812 RGB, OLED, Pure BLE 5.0).
+
 ### 1. Build Firmware
 ```bash
 cd firmware
-pio run
+pio run -e devkit_wifi
 ```
 
 ### 2. Upload to ESP32-S3
-Connect your external USB-to-UART programmer (e.g., FTDI / CP2102) to 3-pin header `J2`:
-- Programmer TX &rarr; Board RX (`GPIO44` / J2-Pin 3)
-- Programmer RX &rarr; Board TX (`GPIO43` / J2-Pin 2)
-- Programmer GND &rarr; Board GND (J2-Pin 1)
-
-Hold down `SW1` (GPIO0) while tapping `SW2` (Reset) to enter bootloader mode, then upload:
+Connect your USB cable or UART programmer (Header `J2`):
 ```bash
-# Upload for Board 1 (Home Wi-Fi mode):
+# Upload for DevKit Wi-Fi test board:
+pio run -e devkit_wifi -t upload --upload-port COM4
+
+# Upload for Board 1 (Custom PCB Home Wi-Fi mode):
 pio run -e home_wifi -t upload
 
-# Upload for Board 2 (Office BLE mode):
+# Upload for Board 2 (Custom PCB Office BLE mode):
 pio run -e office_ble -t upload
 ```
 
-### 3. Open Serial Monitor (115200 Baud)
+---
+
+## Remote Diagnostics & Wireless Telnet Console
+
+In Wi-Fi modes (`home_wifi` and `devkit_wifi`), the ESP32 hosts a lightweight **Wireless Telnet Server** on port **23**:
+
 ```bash
-pio device monitor -b 115200
+# Connect wirelessly from any terminal on the local LAN:
+telnet 192.168.0.214 23
+# or using Netcat:
+ncat 192.168.0.214 23
 ```
+
+The console streams live telemetry, including:
+- Wi-Fi RSSI signal strength & free heap memory.
+- Rendering frame rate (~30 FPS).
+- Real-time Theme changes & circadian brightness RAM adjustments.
+- Runway comet transitions and arrival/departure classifications.
+
+---
+
+## Dynamic Themes & Circadian Flash Endurance
+
+The firmware features an integrated [`theme_manager`](src/theme_manager.h):
+* **Dirty-Checking Version Gate:** Incoming telemetry only triggers parsing if `theme.version` has advanced, eliminating bus lag.
+* **Persistent Preferences in NVS Flash:** User color selections and manual brightness levels are preserved across reboots in ESP32 Preferences flash memory.
+* **Circadian Flash Protection:** When Solar-Sync is active, continuous smooth brightness adjustments sent in-band are applied directly to `FastLED.setBrightness()` in **volatile RAM only**, preserving the 100,000-cycle NVS flash memory endurance indefinitely.
 
 ---
 
@@ -114,6 +144,7 @@ pio device monitor -b 115200
 
 84 WS2812B LEDs at full white can draw up to $4.2\text{A}$, which exceeds standard USB port capabilities and would create significant thermal load. 
 
-This firmware includes two safeguards:
-1. **Brightness Clamping:** `MAX_LED_BRIGHTNESS` is set to `32` (out of 255), keeping the maximum full-load current below $0.6\text{A}$ and preventing optical glare.
-2. **Selective Animation:** At any given time, only active runways are illuminated with approach chases or rollout animations, while idle runways show subtle threshold indicators. Typical power consumption is $< 250\text{mA}$.
+This firmware includes three safeguards:
+1. **Brightness Clamping:** `HARDWARE_MAX_SAFE_BRIGHTNESS` is capped at `48` (out of 255), keeping the maximum full-load current below $0.8\text{A}$ and preventing optical glare.
+2. **FastLED Power Limiter:** `FastLED.setMaxPowerInVoltsAndMilliamps(5, 1200)` enforces a hard $1.2\text{A}$ software envelope.
+3. **Selective Animation:** At any given time, only active runways are illuminated with approach chases or rollout animations, while idle runways show subtle threshold indicators. Typical power consumption is $< 250\text{mA}$.

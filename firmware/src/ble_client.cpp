@@ -4,6 +4,7 @@
 
 #include "ble_client.h"
 #include "runway_leds.h"
+#include "theme_manager.h"
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
@@ -97,6 +98,11 @@ static bool processPayloadJson(const String& json_str, DisplayTelemetryData& out
         Serial.print(F("[BLE] JSON Parse error: "));
         Serial.println(error.f_str());
         return false;
+    }
+
+    // Apply Dynamic LED Theme if present (zero-lag version dirty check)
+    if (!doc["theme"].isNull()) {
+        applyThemeIfPresent(doc["theme"]);
     }
 
     // 1. Process active operations and maintain continuous comet glides

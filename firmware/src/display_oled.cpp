@@ -274,6 +274,14 @@ void renderDisplayLoop() {
     }
 
     bool has_active_flights = (current_data.flight_count > 0 && !is_stale);
+    bool has_warning = (current_data.rate_limited || !current_data.api_online);
+
+    static bool prev_warning_state = false;
+    if (has_warning && !prev_warning_state) {
+        // Automatically wake up display when a new warning arrives
+        wakeDisplay();
+    }
+    prev_warning_state = has_warning;
 
     if (has_active_flights) {
         last_active_event_time = now;
@@ -459,17 +467,43 @@ void renderDisplayLoop() {
         // TOP YELLOW ZONE (Rows y = 0 to 15)
         display.setTextSize(1);
         display.setTextColor(SSD1306_WHITE);
-        display.setCursor(2, 3);
-        display.print(F("KMSP AIRPORT"));
 
-        // Dynamically right-align badge ([IDLE], [VFR], [MVFR], etc.) with 2px margin from right edge
-        char badge[10];
-        if (current_data.weather.valid && current_data.weather.flight_category[0] != '\0') {
+        char badge[16];
+        bool is_warning = false;
+
+        if (current_data.rate_limited) {
+            strncpy(badge, "[QUOTA 429]", sizeof(badge) - 1);
+            badge[sizeof(badge) - 1] = '\0';
+            is_warning = true;
+        } else if (!current_data.api_online) {
+            strncpy(badge, "[NET DOWN]", sizeof(badge) - 1);
+            badge[sizeof(badge) - 1] = '\0';
+            is_warning = true;
+        } else if (current_data.weather.valid && current_data.weather.flight_category[0] != '\0') {
             snprintf(badge, sizeof(badge), "[%s]", current_data.weather.flight_category);
         } else {
-            strcpy(badge, "[IDLE]");
+            strncpy(badge, "[IDLE]", sizeof(badge) - 1);
+            badge[sizeof(badge) - 1] = '\0';
         }
-        int badge_x = SCREEN_WIDTH - ((int)strlen(badge) * 6) - 2;
+
+        // To GUARANTEE zero text collision / screen overflow:
+        // When a warning badge is active, shorten left title to "KMSP" (4 chars = 24px)
+        // instead of "KMSP AIRPORT" (12 chars = 72px).
+        display.setCursor(2, 3);
+        if (is_warning) {
+            display.print(F("KMSP"));
+        } else {
+            display.print(F("KMSP AIRPORT"));
+        }
+
+        // Dynamically right-align badge with 2px margin from right edge
+        int badge_len = (int)strlen(badge);
+        int badge_width = badge_len * 6;
+        int badge_x = SCREEN_WIDTH - badge_width - 2;
+        int min_x = is_warning ? 32 : 78; // 24px (KMSP) + 8px gap
+        if (badge_x < min_x) {
+            badge_x = min_x;
+        }
         display.setCursor(badge_x, 3);
         display.print(badge);
         display.drawFastHLine(0, 15, SCREEN_WIDTH, SSD1306_WHITE); // Yellow dividing line
@@ -529,7 +563,11 @@ void renderDisplayLoop() {
         // Row 4 (y = 54): Status Footer (strictly <= 21 chars, never clips)
         display.setCursor(0, 54);
         char foot[24];
-        if (strlen(current_data.updated_time) > 0) {
+        if (current_data.rate_limited) {
+            snprintf(foot, sizeof(foot), "OpenSky: Quota 429");
+        } else if (!current_data.api_online) {
+            snprintf(foot, sizeof(foot), "OpenSky: Offline");
+        } else if (strlen(current_data.updated_time) > 0) {
             snprintf(foot, sizeof(foot), "Updated: %s", current_data.updated_time);
         } else if (current_data.has_had_event) {
             snprintf(foot, sizeof(foot), "Airspace: %d tracked", current_data.tracked_count);

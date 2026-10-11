@@ -13,5 +13,7 @@
 void initNetwork();
 void checkWifiConnection();
 bool pollTelemetryData(DisplayTelemetryData& out_telemetry);
+void recordFrameRendered();
+uint8_t getCurrentFps();
 
 #endif

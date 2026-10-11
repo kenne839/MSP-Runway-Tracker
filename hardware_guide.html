@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>MSP Runway Tracker — Hardware Deployment Guide</title>
+<style>
+  @page {
+    size: letter;
+    margin: 16mm 16mm 18mm 16mm;
+    @bottom-right {
+      content: counter(page) " / " counter(pages);
+      font-size: 9pt;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #64748b;
+    }
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #1e293b;
+    line-height: 1.55;
+    font-size: 10pt;
+    margin: 0;
+    padding: 0;
+  }
+
+  header {
+    border-bottom: 2px solid #0284c7;
+    padding-bottom: 12px;
+    margin-bottom: 20px;
+  }
+
+  h1 {
+    font-size: 20pt;
+    font-weight: 700;
+    color: #0f172a;
+    margin: 0 0 6px 0;
+    letter-spacing: -0.5px;
+  }
+
+  .subtitle {
+    font-size: 11pt;
+    color: #475569;
+    margin: 0 0 10px 0;
+  }
+
+  .badges {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 3px 8px;
+    font-size: 8pt;
+    font-weight: 600;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .badge-blue { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
+  .badge-navy { background: #e2e8f0; color: #1e293b; border: 1px solid #cbd5e1; }
+  .badge-green { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+
+  h2 {
+    font-size: 13pt;
+    font-weight: 700;
+    color: #0f172a;
+    border-bottom: 1px solid #e2e8f0;
+    padding-bottom: 4px;
+    margin-top: 18px;
+    margin-bottom: 10px;
+    page-break-after: avoid;
+  }
+
+  h3 {
+    font-size: 11pt;
+    font-weight: 600;
+    color: #1e293b;
+    margin-top: 12px;
+    margin-bottom: 6px;
+    page-break-after: avoid;
+  }
+
+  p {
+    margin: 0 0 8px 0;
+  }
+
+  ul, ol {
+    margin: 0 0 10px 0;
+    padding-left: 20px;
+  }
+
+  li {
+    margin-bottom: 4px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0 14px 0;
+    font-size: 9pt;
+    page-break-inside: avoid;
+  }
+
+  th, td {
+    padding: 6px 10px;
+    text-align: left;
+    border: 1px solid #e2e8f0;
+  }
+
+  th {
+    background-color: #f1f5f9;
+    font-weight: 600;
+    color: #334155;
+  }
+
+  tr:nth-child(even) td {
+    background-color: #f8fafc;
+  }
+
+  code {
+    font-family: "Cascadia Code", Consolas, "Courier New", monospace;
+    font-size: 8.5pt;
+    background: #f1f5f9;
+    color: #0f172a;
+    padding: 1px 4px;
+    border-radius: 3px;
+    border: 1px solid #e2e8f0;
+  }
+
+  pre {
+    background: #0f172a;
+    color: #f8fafc;
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-family: "Cascadia Code", Consolas, "Courier New", monospace;
+    font-size: 8.5pt;
+    line-height: 1.45;
+    margin: 8px 0 12px 0;
+    overflow-x: auto;
+    page-break-inside: avoid;
+  }
+
+  pre code {
+    background: none;
+    color: inherit;
+    padding: 0;
+    border: none;
+  }
+
+  .callout {
+    border-left: 4px solid #0284c7;
+    background-color: #f0f9ff;
+    padding: 8px 12px;
+    margin: 10px 0;
+    border-radius: 0 6px 6px 0;
+    font-size: 9pt;
+    page-break-inside: avoid;
+  }
+
+  .callout.warning {
+    border-left-color: #e11d48;
+    background-color: #fff1f2;
+    color: #881337;
+  }
+
+  .callout.tip {
+    border-left-color: #10b981;
+    background-color: #ecfdf5;
+    color: #064e3b;
+  }
+
+  .callout-title {
+    font-weight: 700;
+    margin-bottom: 2px;
+  }
+
+  .section {
+    page-break-inside: avoid;
+  }
+
+  .step-num {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    background: #0284c7;
+    color: white;
+    border-radius: 50%;
+    text-align: center;
+    line-height: 20px;
+    font-weight: bold;
+    font-size: 8pt;
+    margin-right: 6px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>MSP Runway Tracker</h1>
+  <div class="subtitle">Production Hardware Assembly, Programming & Deployment Runbook</div>
+  <div class="badges">
+    <span class="badge badge-blue">ESP32-S3-WROOM-1</span>
+    <span class="badge badge-navy">84x WS2812B LEDs</span>
+    <span class="badge badge-blue">0.96" SSD1306 OLED</span>
+    <span class="badge badge-green">Raspberry Pi Telemetry</span>
+  </div>
+</header>
+
+<h2>1. System Architecture & Component Overview</h2>
+<p>
+This document details the exact process for flashing and commissioning the custom production PCB once your manufactured boards and components arrive.
+</p>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width: 28%;">Subsystem</th>
+      <th style="width: 24%;">Component</th>
+      <th style="width: 18%;">Pin / Bus</th>
+      <th>Functional Role</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Microcontroller</strong></td>
+      <td>ESP32-S3-WROOM-1-N16R8</td>
+      <td>Dual-Core 240MHz</td>
+      <td>16MB Flash, 8MB Octal PSRAM. Runs 30 FPS LED animation engine.</td>
+    </tr>
+    <tr>
+      <td><strong>Runway LED Array</strong></td>
+      <td>84 &times; WS2812B (U2–U85)</td>
+      <td><code>GPIO4</code></td>
+      <td>Driven via SN74LVC1T45 (U87) 5V level shifter with 330&Omega; series resistor.</td>
+    </tr>
+    <tr>
+      <td><strong>Telemetry OLED</strong></td>
+      <td>UCTRONICS 0.96" Yellow/Blue</td>
+      <td><code>GPIO1</code> / <code>GPIO2</code></td>
+      <td>Header J3 I2C bus (0x3C). Yellow: Active runway. Blue: Flight details.</td>
+    </tr>
+    <tr>
+      <td><strong>UART Header J2</strong></td>
+      <td>3-Pin Male Header</td>
+      <td><code>GPIO43</code> / <code>GPIO44</code></td>
+      <td>Pin 1: GND, Pin 2: TXD0 (ESP32 TX), Pin 3: RXD0 (ESP32 RX).</td>
+    </tr>
+    <tr>
+      <td><strong>Main Power J1</strong></td>
+      <td>USB-C Receptacle</td>
+      <td>5V Rail</td>
+      <td>Power input from 5V/2.5A adapter. Step-down to 3.3V via AMS1117-3.3 (U86).</td>
+    </tr>
+    <tr>
+      <td><strong>Telemetry Server</strong></td>
+      <td>Raspberry Pi 3 Model A+</td>
+      <td>Wi-Fi (wlan0)</td>
+      <td>Polls OpenSky ADS-B API and serves <code>http://192.168.0.213:8080/api/runway_state</code>.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>2. Pre-Power Physical Inspection</h2>
+<p>Perform these physical verifications before applying power to prevent electrical damage:</p>
+<ul>
+  <li><strong>Solder Inspection:</strong> Visually inspect the castellated pads of the ESP32-S3 module under magnification. Confirm there are no solder bridges between adjacent pins, especially around <code>GPIO43</code>, <code>GPIO44</code>, <code>GPIO0</code>, <code>EN</code>, <code>3V3</code>, and <code>GND</code>.</li>
+  <li><strong>OLED Header Pinout (J3):</strong> Confirm the pin sequence of your OLED breakout board matches the PCB silkscreen. Some 0.96" SSD1306 displays use <code>GND-VCC-SCL-SDA</code>, while others use <code>VCC-GND-SCL-SDA</code>. Connecting power in reverse will destroy the display controller.</li>
+  <li><strong>Multimeter Short Check:</strong> Test continuity across the 5V power input pads (5V to GND) and across the regulated rail (3.3V to GND). Verify neither rail is shorted before connecting USB power.</li>
+</ul>
+
+<div class="callout warning">
+  <div class="callout-title">CRITICAL: Power Supply Requirement</div>
+  84 WS2812B LEDs can draw substantial peak currents. <strong>Never attempt to power the LED array from your USB-to-TTL programmer!</strong> Always plug a dedicated 5V USB-C power supply (2.0A or greater) into receptacle <strong>J1</strong>.
+</div>
+
+<h2>3. Firmware Configuration & Build Environment</h2>
+
+<p>Your firmware is already pre-configured for your home network and live Raspberry Pi IP address:</p>
+
+<h3>A. Verify Network Settings in <code>firmware/src/config.h</code></h3>
+<pre><code>// Wi-Fi Credentials (2.4 GHz Band)
+#define WIFI_SSID           "CenturyLinkD8F1"
+#define WIFI_PASSWORD       "a7b8edf85e3f2c"
+
+// Raspberry Pi REST Telemetry API Endpoint
+#define PI_SERVER_URL       "http://192.168.0.213:8080/api/runway_state"</code></pre>
+
+<h3>B. Build Environment: <code>home_wifi</code></h3>
+<p>
+For the production board, build with <strong><code>[env:home_wifi]</code></strong> (not <code>devkit_wifi</code>). In this environment:
+</p>
+<ul>
+  <li><code>BOARD_MODE_WIFI=1</code>: Enables Wi-Fi networking and HTTP client polling.</li>
+  <li><code>BOARD_MODE_DEVKIT</code> is <strong>not set</strong>: Automatically configures pin <strong><code>GPIO4</code></strong> to drive all <strong>84 LEDs</strong> and enables hardware safety current-clamping (<code>MAX_LED_BRIGHTNESS = 32</code>).</li>
+</ul>
+
+<h2>4. Programmer Wiring & Connection (Header J2)</h2>
+
+<p>Connect your USB-to-TTL programmer (FTDI / CP2102) to the 3-pin Header <strong>J2</strong> using jumper wires:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>PCB Header J2 Pin</th>
+      <th>ESP32-S3 Signal</th>
+      <th>Programmer Wire</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Pin 1</strong></td>
+      <td><code>GND</code></td>
+      <td><strong>GND</strong></td>
+      <td>Common signal ground</td>
+    </tr>
+    <tr>
+      <td><strong>Pin 2</strong></td>
+      <td><code>GPIO43</code> (TXD0)</td>
+      <td><strong>RXD</strong></td>
+      <td>ESP32 transmit &rarr; Programmer receive (Crossover)</td>
+    </tr>
+    <tr>
+      <td><strong>Pin 3</strong></td>
+      <td><code>GPIO44</code> (RXD0)</td>
+      <td><strong>TXD</strong></td>
+      <td>Programmer transmit &rarr; ESP32 receive (Crossover)</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout tip">
+  <div class="callout-title">Logic Voltage Jumper</div>
+  Ensure the voltage jumper on your USB-to-TTL programmer is set to <strong>3.3V logic</strong>. Connecting 5V UART signals directly to the ESP32-S3 will cause damage.
+</div>
+
+<h2>5. Flashing the Production Hardware</h2>
+
+<ol>
+  <li>Plug the 5V USB-C power supply into receptacle <strong>J1</strong> on the PCB.</li>
+  <li>Plug the USB-to-TTL programmer into your computer's USB port.</li>
+  <li>Check Windows <strong>Device Manager</strong> under <em>Ports (COM &amp; LPT)</em> to confirm your COM port number (e.g. <code>COM3</code>).</li>
+  <li>
+    <strong>Enter ROM Bootloader Mode:</strong>
+    <ul>
+      <li>Press and <strong>hold SW1</strong> (BOOT / GPIO0).</li>
+      <li>While holding SW1, <strong>press and release SW2</strong> (RESET / EN).</li>
+      <li><strong>Release SW1</strong>. The chip is now in download mode.</li>
+    </ul>
+  </li>
+  <li>
+    <strong>Upload Firmware using PowerShell:</strong>
+    <pre><code>& "$HOME\.platformio\penv\Scripts\pio.exe" run -d firmware -e home_wifi -t upload --upload-port COM3</code></pre>
+  </li>
+  <li>
+    <strong>Boot Normal Application:</strong>
+    Once upload completes with <code>[SUCCESS]</code>, press <strong>SW2 (RESET)</strong> once.
+  </li>
+</ol>
+
+<h2>6. Post-Flash Verification & Diagnostics</h2>
+
+<h3>A. Open Serial Monitor (115200 Baud)</h3>
+<pre><code>& "$HOME\.platformio\penv\Scripts\pio.exe" device monitor -d firmware -e home_wifi -b 115200 --port COM3</code></pre>
+
+<h3>B. Expected Boot Sequence</h3>
+<pre><code>[Init] MSP Runway LED Tracker (Home Wi-Fi Mode)
+[Init] OLED SSD1306 initialized (128x64 at 0x3C)
+[Init] FastLED initialized: 84 WS2812B LEDs on GPIO4 (Max Brightness: 32)
+[WiFi] Connecting to SSID: CenturyLinkD8F1...
+[WiFi] Connected! IP Address: 192.168.0.xxx
+[HTTP] Polling telemetry from http://192.168.0.213:8080/api/runway_state
+[HTTP] 200 OK - Active ops: 1</code></pre>
+
+<h3>C. Hardware Subsystem Checklist</h3>
+<ul>
+  <li><strong>OLED Display:</strong> Displays live METAR weather and runway roles in idle periods; displays live flight details (callsign, airline, airframe, origin/destination) during flight events.</li>
+  <li><strong>Runway 12R–30L (LEDs 0–25, 26 count):</strong> Landing touchdown rollout comets start at threshold; takeoff roll accelerates in departure direction.</li>
+  <li><strong>Runway 30R–12L (LEDs 26–45, 20 count):</strong> Parallel approach and rollout tracking.</li>
+  <li><strong>Runway 22–4 (LEDs 46–63, 18 count):</strong> Crosswind runway properly passes through intersection points.</li>
+  <li><strong>Runway 35–17 (LEDs 64–83, 20 count):</strong> North-South crosswind runway animations render smoothly.</li>
+</ul>
+
+<h2>7. Troubleshooting Quick Reference</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width: 30%;">Symptom</th>
+      <th style="width: 30%;">Probable Cause</th>
+      <th>Corrective Action</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>Failed to connect to ESP32-S3</code></td>
+      <td>Not in bootloader mode or TX/RX swapped</td>
+      <td>Swap TX/RX on J2. Hold SW1, tap SW2, release SW1, then retry flash.</td>
+    </tr>
+    <tr>
+      <td><code>Reason: 201 - NO_AP_FOUND</code></td>
+      <td>SSID set to 5 GHz band</td>
+      <td>Ensure SSID is set to 2.4 GHz (<code>CenturyLinkD8F1</code>).</td>
+    </tr>
+    <tr>
+      <td>OLED display stays dark</td>
+      <td>I2C address or pin mismatch</td>
+      <td>Check Header J3 soldering. Confirm OLED pin order matches PCB silkscreen.</td>
+    </tr>
+    <tr>
+      <td>LEDs flicker or freeze</td>
+      <td>Voltage sag / weak power supply</td>
+      <td>Ensure USB-C supply delivers &ge; 2.0A at 5.0V. Check level shifter U87.</td>
+    </tr>
+  </tbody>
+</table>
+
+</body>
+</html>
+

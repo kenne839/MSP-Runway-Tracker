@@ -9,6 +9,7 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 from .tracker import TelemetryState
 from .config import SERVER_HOST, SERVER_PORT
+from .theme import THEME_PRESETS
 
 DASHBOARD_HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -51,6 +52,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         th { background: #1a243c; color: var(--text-muted); text-transform: uppercase; font-size: 0.75rem; }
         tr:not(:last-child) { border-bottom: 1px solid var(--border); }
         .empty { text-align: center; color: var(--text-muted); padding: 32px; }
+        .preset-btn { background: #1a243c; color: var(--text-color); border: 1px solid var(--border); padding: 6px 12px; border-radius: 6px; font-size: 0.8rem; cursor: pointer; transition: all 0.15s ease; }
+        .preset-btn:hover { background: #233152; border-color: var(--accent-blue); }
+        .color-control { background: #0f1523; border: 1px solid var(--border); border-radius: 6px; padding: 10px; text-align: center; }
+        .color-control label { display: block; font-size: 0.72rem; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; font-weight: bold; }
+        .color-control input[type="color"] { width: 48px; height: 32px; border: none; border-radius: 4px; background: none; cursor: pointer; }
+        .apply-btn { background: #0284c7; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-weight: bold; font-size: 0.85rem; cursor: pointer; transition: background 0.15s; }
+        .apply-btn:hover { background: #0369a1; }
         .footer { margin-top: 24px; font-size: 0.8rem; color: var(--text-muted); text-align: center; }
     </style>
 </head>
@@ -88,10 +96,111 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             <h3>Last Update</h3>
             <div id="lastUpdate" class="metric" style="font-size: 1.1rem; color: var(--text-muted);">--:--:--</div>
         </div>
+        <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <h3 style="margin-bottom: 0;">ESP32 Display Node</h3>
+                <span id="esp32StatusBadge" class="badge" style="font-size: 0.7rem; padding: 2px 6px;">WAITING</span>
+            </div>
+            <div id="esp32Summary" class="metric" style="font-size: 1.05rem; color: var(--accent-blue);">Waiting for ESP32...</div>
+            <div id="esp32Details" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Awaiting telemetry poll</div>
+        </div>
+        <div class="card">
+            <h3>OpenSky Quota</h3>
+            <div id="quotaSummary" class="metric" style="font-size: 1.15rem; color: var(--accent-green);">-- / 4,000</div>
+            <div id="quotaDetails" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">0% consumed today</div>
+        </div>
     </div>
 
     <h2 style="font-size: 1.1rem; margin-bottom: 12px;">Runway Status Summary</h2>
     <div id="runwayGrid" class="runway-grid"></div>
+
+    <div class="card" style="margin-bottom: 24px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+            <div>
+                <h2 style="font-size: 1.15rem; font-weight: bold;">LED Theme & Hardware Brightness</h2>
+                <p style="color: var(--text-muted); font-size: 0.8rem; margin-top: 2px;">
+                    Real-time visual customization &bull; In-band sync with ESP32-S3 Flash memory
+                </p>
+            </div>
+            <span id="themeVersionBadge" class="badge" style="background: #1e293b; color: var(--accent-blue);">Theme v1</span>
+        </div>
+
+        <div style="margin-bottom: 16px;">
+            <div style="font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px; font-weight: bold;">Quick Theme Presets</div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button type="button" class="preset-btn" onclick="applyPreset('classic')">🟢 Classic Emerald</button>
+                <button type="button" class="preset-btn" onclick="applyPreset('cyberpunk')">⚡ Cyberpunk Neon</button>
+                <button type="button" class="preset-btn" onclick="applyPreset('sapphire')">🔷 Midnight Sapphire</button>
+                <button type="button" class="preset-btn" onclick="applyPreset('sunset')">🌅 Sunset Flame</button>
+                <button type="button" class="preset-btn" onclick="applyPreset('night')">🔴 Night Vision</button>
+            </div>
+        </div>
+
+        <!-- Solar-Sync Circadian Card -->
+        <div style="margin-bottom: 14px; background: #0b111e; padding: 12px 14px; border-radius: 6px; border: 1px solid #1e293b;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <label style="font-size: 0.85rem; font-weight: bold; color: var(--text-color); display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 0;">
+                    <input type="checkbox" id="solarSyncToggle" style="width: 17px; height: 17px; accent-color: #38bdf8; cursor: pointer;" onchange="onSolarToggle(this.checked)">
+                    <span>☀️ Solar-Sync (Auto Dusk/Dawn)</span>
+                </label>
+                <span id="solarPhasePill" style="font-size: 0.72rem; padding: 2px 8px; border-radius: 10px; background: #1e293b; color: #38bdf8; font-weight: 600; border: 1px solid #334155;">
+                    Calculating...
+                </span>
+            </div>
+            <div style="font-size: 0.72rem; color: var(--text-muted); margin-bottom: 8px;">
+                Circadian brightness tracking live KMSP solar elevation via Hermite smoothstep curve.
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--text-muted); background: #060911; padding: 6px 10px; border-radius: 4px; border: 1px solid #131d2e;">
+                <span>Sun Elevation: <strong id="solarElevVal" style="color: #f8fafc;">--°</strong></span>
+                <span>Circadian Target: <strong id="effectiveBrightnessVal" style="color: #f59e0b;">-- / 48</strong></span>
+                <span>Bounds: 8 (Night) &rarr; 40 (Day)</span>
+            </div>
+        </div>
+
+        <div style="margin-bottom: 18px; background: #0f1523; padding: 14px 16px; border-radius: 6px; border: 1px solid var(--border);">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                <label style="font-size: 0.85rem; font-weight: bold; color: var(--text-color);">Master LED Brightness Ceiling</label>
+                <span id="brightnessReadout" style="font-size: 0.85rem; font-weight: bold; color: var(--accent-amber);">24 / 48 (50%)</span>
+            </div>
+            <input type="range" id="brightnessInput" min="5" max="48" value="24" style="width: 100%; accent-color: var(--accent-amber); cursor: pointer;" oninput="onBrightnessSlide(this.value)">
+            <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--text-muted); margin-top: 4px;">
+                <span>5 (Ultra-Dim Desktop)</span>
+                <span>24 (Recommended Desktop)</span>
+                <span>48 (Safe Max ~0.8A)</span>
+            </div>
+        </div>
+
+        <div style="margin-bottom: 16px;">
+            <div style="font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px; font-weight: bold;">Custom Color Palette</div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px;">
+                <div class="color-control">
+                    <label>Landing Strobe</label>
+                    <input type="color" id="landingHeadCol" value="#ffffff">
+                </div>
+                <div class="color-control">
+                    <label>Rollout Tail</label>
+                    <input type="color" id="landingTailCol" value="#00ff88">
+                </div>
+                <div class="color-control">
+                    <label>Takeoff Roll</label>
+                    <input type="color" id="takeoffHeadCol" value="#ffe0a0">
+                </div>
+                <div class="color-control">
+                    <label>Flame Tail</label>
+                    <input type="color" id="takeoffTailCol" value="#ff4500">
+                </div>
+                <div class="color-control">
+                    <label>Threshold Idle</label>
+                    <input type="color" id="idleThreshCol" value="#002200">
+                </div>
+            </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 12px;">
+            <button type="button" class="apply-btn" onclick="saveCustomTheme()">Apply Changes</button>
+            <span id="themeFeedback" style="font-size: 0.8rem; color: var(--accent-green); display: none;">✓ Theme applied! Broadcasting to ESP32</span>
+        </div>
+    </div>
 
     <h2 style="font-size: 1.1rem; margin-bottom: 12px;">Active Movement Details</h2>
     <table>
@@ -150,6 +259,54 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                     atisEl.style.display = 'none';
                 }
 
+                // ESP32 Heartbeat Node Card
+                const node = data.esp32_node;
+                const nodeBadge = document.getElementById('esp32StatusBadge');
+                const nodeSum = document.getElementById('esp32Summary');
+                const nodeDet = document.getElementById('esp32Details');
+                if (node && node.last_seen_ts) {
+                    const elapsed = Math.floor(Date.now() / 1000) - node.last_seen_ts;
+                    if (node.online && elapsed < 10) {
+                        nodeBadge.innerText = 'ONLINE';
+                        nodeBadge.style.color = 'var(--accent-green)';
+                        nodeSum.innerText = `${node.ip} • ${node.fps || 30} FPS`;
+                        nodeSum.style.color = 'var(--accent-green)';
+                        nodeDet.innerText = `RSSI: ${node.rssi} dBm | Heap: ${node.free_heap_kb} KB | Uptime: ${Math.floor(node.uptime_sec / 60)}m`;
+                    } else if (elapsed < 45) {
+                        nodeBadge.innerText = 'LAGGING';
+                        nodeBadge.style.color = 'var(--accent-amber)';
+                        nodeSum.innerText = `${node.ip} (${elapsed}s ago)`;
+                        nodeSum.style.color = 'var(--accent-amber)';
+                    } else {
+                        nodeBadge.innerText = 'OFFLINE';
+                        nodeBadge.style.color = 'var(--accent-red)';
+                        nodeSum.innerText = `Last seen: ${elapsed}s ago`;
+                        nodeSum.style.color = 'var(--accent-red)';
+                    }
+                } else {
+                    nodeBadge.innerText = 'WAITING';
+                    nodeBadge.style.color = 'var(--text-muted)';
+                    nodeSum.innerText = 'Waiting for ESP32...';
+                    nodeSum.style.color = 'var(--text-muted)';
+                    nodeDet.innerText = 'Awaiting telemetry poll';
+                }
+
+                // OpenSky Daily Quota Card
+                const net = data.network;
+                if (net && net.quota_limit) {
+                    const qSum = document.getElementById('quotaSummary');
+                    const qDet = document.getElementById('quotaDetails');
+                    qSum.innerText = `${net.requests_today.toLocaleString()} / ${net.quota_limit.toLocaleString()}`;
+                    qDet.innerText = `${net.quota_percent}% used today${net.rate_limited ? ' (RATE LIMITED)' : ''}`;
+                    if (net.rate_limited) {
+                        qSum.style.color = 'var(--accent-red)';
+                    } else if (net.quota_percent >= 85) {
+                        qSum.style.color = 'var(--accent-amber)';
+                    } else {
+                        qSum.style.color = 'var(--accent-green)';
+                    }
+                }
+
                 // Render Runways
                 const closedList = (data.runway_roles && data.runway_roles.closed_runways) || [];
                 const rwContainer = document.getElementById('runwayGrid');
@@ -193,12 +350,156 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                     }
                     tbody.innerHTML = rows;
                 }
+                // Update theme controls and live solar metrics
+                if (data.theme) {
+                    updateSolarIndicators(data.theme);
+                    if (data.theme.solar_sync) {
+                        const brInput = document.getElementById('brightnessInput');
+                        if (brInput && !brightnessDebounceTimer) {
+                            brInput.value = data.theme.effective_brightness;
+                        }
+                        updateBrightnessLabel(data.theme.effective_brightness, true);
+                    }
+                    if (data.theme.version && data.theme.version !== currentThemeVersion) {
+                        applyThemeToForm(data.theme);
+                    }
+                }
             } catch (err) {
                 console.error("Refresh failed", err);
                 document.getElementById('liveBadge').innerText = "DISCONNECTED";
                 document.getElementById('liveBadge').style.color = "var(--accent-red)";
             }
         }
+
+        function hexToColorInput(val) {
+            if (!val) return "#ffffff";
+            let s = val.toString().trim();
+            if (s.startsWith("0x") || s.startsWith("0X")) s = "#" + s.substring(2);
+            if (!s.startsWith("#")) s = "#" + s;
+            while (s.length < 7) s += "0";
+            return s.toLowerCase();
+        }
+
+        let currentThemeVersion = 1;
+
+        async function loadTheme() {
+            try {
+                const res = await fetch('/api/theme');
+                if (!res.ok) return;
+                const theme = await res.json();
+                applyThemeToForm(theme);
+            } catch (e) {
+                console.error("Failed to load theme:", e);
+            }
+        }
+
+        function applyThemeToForm(theme) {
+            if (!theme) return;
+            currentThemeVersion = theme.version || 1;
+            const badge = document.getElementById('themeVersionBadge');
+            if (badge) badge.innerText = `Theme v${currentThemeVersion}`;
+            
+            const isSolar = !!theme.solar_sync;
+            const solarToggle = document.getElementById('solarSyncToggle');
+            if (solarToggle) solarToggle.checked = isSolar;
+
+            updateSolarIndicators(theme);
+
+            const displayBr = isSolar ? (theme.effective_brightness || theme.brightness || 24) : (theme.brightness || 24);
+            const brInput = document.getElementById('brightnessInput');
+            if (brInput) brInput.value = displayBr;
+            updateBrightnessLabel(displayBr, isSolar);
+
+            if (theme.landing_head && document.getElementById('landingHeadCol')) document.getElementById('landingHeadCol').value = hexToColorInput(theme.landing_head);
+            if (theme.landing_tail && document.getElementById('landingTailCol')) document.getElementById('landingTailCol').value = hexToColorInput(theme.landing_tail);
+            if (theme.takeoff_head && document.getElementById('takeoffHeadCol')) document.getElementById('takeoffHeadCol').value = hexToColorInput(theme.takeoff_head);
+            if (theme.takeoff_tail && document.getElementById('takeoffTailCol')) document.getElementById('takeoffTailCol').value = hexToColorInput(theme.takeoff_tail);
+            if (theme.idle_threshold && document.getElementById('idleThreshCol')) document.getElementById('idleThreshCol').value = hexToColorInput(theme.idle_threshold);
+        }
+
+        function updateSolarIndicators(theme) {
+            if (!theme) return;
+            const phasePill = document.getElementById('solarPhasePill');
+            if (phasePill && theme.solar_phase) {
+                phasePill.innerText = `☀️ ${theme.solar_phase}`;
+            }
+            const elevVal = document.getElementById('solarElevVal');
+            if (elevVal && theme.solar_elevation !== undefined) {
+                elevVal.innerText = `${theme.solar_elevation > 0 ? '+' : ''}${theme.solar_elevation}°`;
+            }
+            const effBrVal = document.getElementById('effectiveBrightnessVal');
+            if (effBrVal && theme.effective_brightness !== undefined) {
+                effBrVal.innerText = `${theme.effective_brightness} / 48`;
+            }
+        }
+
+        function updateBrightnessLabel(val, isSolar) {
+            const pct = Math.round((val / 48) * 100);
+            const lbl = document.getElementById('brightnessReadout');
+            if (lbl) {
+                if (isSolar) {
+                    lbl.innerText = `${val} / 48 (${pct}% • ☀️ Solar Sync)`;
+                } else {
+                    lbl.innerText = `${val} / 48 (${pct}%)`;
+                }
+            }
+        }
+
+        let brightnessDebounceTimer = null;
+        function onBrightnessSlide(val) {
+            updateBrightnessLabel(val, false);
+            clearTimeout(brightnessDebounceTimer);
+            brightnessDebounceTimer = setTimeout(() => {
+                postThemeUpdate({ brightness: parseInt(val, 10), solar_sync: false });
+                brightnessDebounceTimer = null;
+            }, 300);
+        }
+
+        async function onSolarToggle(checked) {
+            await postThemeUpdate({ solar_sync: checked });
+        }
+
+        async function applyPreset(name) {
+            await postThemeUpdate({ preset: name });
+        }
+
+        async function saveCustomTheme() {
+            const isSolar = document.getElementById('solarSyncToggle').checked;
+            const payload = {
+                brightness: parseInt(document.getElementById('brightnessInput').value, 10),
+                solar_sync: isSolar,
+                landing_head: document.getElementById('landingHeadCol').value,
+                landing_tail: document.getElementById('landingTailCol').value,
+                takeoff_head: document.getElementById('takeoffHeadCol').value,
+                takeoff_tail: document.getElementById('takeoffTailCol').value,
+                idle_threshold: document.getElementById('idleThreshCol').value
+            };
+            await postThemeUpdate(payload);
+        }
+
+        async function postThemeUpdate(payload) {
+            try {
+                const res = await fetch('/api/theme', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (res.ok) {
+                    const updated = await res.json();
+                    applyThemeToForm(updated);
+                    const fb = document.getElementById('themeFeedback');
+                    if (fb) {
+                        fb.innerText = `✓ Theme v${updated.version} applied! Syncing to ESP32...`;
+                        fb.style.display = 'inline-block';
+                        setTimeout(() => { fb.style.display = 'none'; }, 4000);
+                    }
+                }
+            } catch (err) {
+                console.error("Theme post failed:", err);
+            }
+        }
+
+        loadTheme();
         setInterval(refresh, 2000);
         refresh();
     </script>
@@ -214,7 +515,7 @@ def make_handler(state: TelemetryState):
 
         def _send_cors_headers(self):
             self.send_header("Access-Control-Allow-Origin", "*")
-            self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
             self.send_header("Access-Control-Allow-Headers", "Content-Type")
 
         def do_OPTIONS(self):
@@ -227,11 +528,37 @@ def make_handler(state: TelemetryState):
             path = parsed.path.rstrip("/")
 
             if path in ("/api/runway_state", "/api/state"):
+                client_ip = self.client_address[0]
+                rssi = self.headers.get("X-ESP32-RSSI")
+                heap = self.headers.get("X-ESP32-Heap")
+                uptime = self.headers.get("X-ESP32-Uptime")
+                fps = self.headers.get("X-ESP32-FPS")
+                if any((rssi, heap, uptime, fps)):
+                    state.update_esp32_heartbeat(client_ip, rssi, heap, uptime, fps)
+
                 snapshot = state.get_snapshot()
                 body = json.dumps(snapshot, indent=2).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                self._send_cors_headers()
+                self.end_headers()
+                self.wfile.write(body)
+
+            elif path == "/api/theme":
+                theme = state.get_theme()
+                body = json.dumps(theme, indent=2).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                self._send_cors_headers()
+                self.end_headers()
+                self.wfile.write(body)
+
+            elif path == "/api/theme/presets":
+                body = json.dumps(THEME_PRESETS, indent=2).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
                 self._send_cors_headers()
                 self.end_headers()
                 self.wfile.write(body)
@@ -273,6 +600,34 @@ def make_handler(state: TelemetryState):
                     self.end_headers()
                     self.wfile.write(b"Simulator not found")
 
+            else:
+                self.send_response(404)
+                self.send_header("Content-Type", "text/plain")
+                self.end_headers()
+                self.wfile.write(b"404 Not Found")
+
+        def do_POST(self):
+            parsed = urlparse(self.path)
+            path = parsed.path.rstrip("/")
+
+            if path == "/api/theme":
+                content_len = int(self.headers.get("Content-Length", 0))
+                post_body = self.rfile.read(content_len).decode("utf-8") if content_len > 0 else "{}"
+                try:
+                    data = json.loads(post_body) if post_body else {}
+                    updated = state.update_theme(data)
+                    body = json.dumps(updated, indent=2).encode("utf-8")
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self._send_cors_headers()
+                    self.end_headers()
+                    self.wfile.write(body)
+                except Exception as e:
+                    self.send_response(400)
+                    self.send_header("Content-Type", "application/json")
+                    self._send_cors_headers()
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"error": str(e)}).encode("utf-8"))
             else:
                 self.send_response(404)
                 self.send_header("Content-Type", "text/plain")

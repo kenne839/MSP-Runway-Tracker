@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>MSP Runway Tracker — Dynamic LED Architecture</title>
+<style>
+  @page {
+    size: letter;
+    margin: 16mm 16mm 18mm 16mm;
+    @bottom-right {
+      content: counter(page) " / " counter(pages);
+      font-size: 9pt;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #64748b;
+    }
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #1e293b;
+    line-height: 1.55;
+    font-size: 10pt;
+    margin: 0;
+    padding: 0;
+  }
+
+  header {
+    border-bottom: 2px solid #6366f1;
+    padding-bottom: 12px;
+    margin-bottom: 18px;
+  }
+
+  h1 {
+    font-size: 20pt;
+    font-weight: 700;
+    color: #0f172a;
+    margin: 0 0 6px 0;
+    letter-spacing: -0.5px;
+  }
+
+  .subtitle {
+    font-size: 11pt;
+    color: #475569;
+    margin: 0 0 10px 0;
+  }
+
+  .badges {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 3px 8px;
+    font-size: 8pt;
+    font-weight: 600;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .badge-purple { background: #e0e7ff; color: #4338ca; border: 1px solid #c7d2fe; }
+  .badge-blue { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
+  .badge-green { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+  .badge-amber { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
+
+  h2 {
+    font-size: 13pt;
+    font-weight: 700;
+    color: #0f172a;
+    border-bottom: 1px solid #e2e8f0;
+    padding-bottom: 4px;
+    margin-top: 18px;
+    margin-bottom: 10px;
+    page-break-after: avoid;
+  }
+
+  h3 {
+    font-size: 11pt;
+    font-weight: 600;
+    color: #1e293b;
+    margin-top: 12px;
+    margin-bottom: 6px;
+    page-break-after: avoid;
+  }
+
+  p {
+    margin: 0 0 8px 0;
+  }
+
+  ul, ol {
+    margin: 0 0 10px 0;
+    padding-left: 20px;
+  }
+
+  li {
+    margin-bottom: 4px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0 14px 0;
+    font-size: 9pt;
+    page-break-inside: avoid;
+  }
+
+  th, td {
+    padding: 6px 10px;
+    text-align: left;
+    border: 1px solid #e2e8f0;
+  }
+
+  th {
+    background-color: #f8fafc;
+    font-weight: 600;
+    color: #334155;
+  }
+
+  tr:nth-child(even) td {
+    background-color: #f8fafc;
+  }
+
+  code {
+    font-family: "Cascadia Code", Consolas, "Courier New", monospace;
+    font-size: 8.5pt;
+    background: #f1f5f9;
+    color: #0f172a;
+    padding: 1px 4px;
+    border-radius: 3px;
+    border: 1px solid #e2e8f0;
+  }
+
+  pre {
+    background: #0f172a;
+    color: #f8fafc;
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-family: "Cascadia Code", Consolas, "Courier New", monospace;
+    font-size: 8.5pt;
+    line-height: 1.45;
+    margin: 8px 0 12px 0;
+    overflow-x: auto;
+    page-break-inside: avoid;
+  }
+
+  pre code {
+    background: none;
+    color: inherit;
+    padding: 0;
+    border: none;
+  }
+
+  .callout {
+    border-left: 4px solid #6366f1;
+    background-color: #eef2ff;
+    padding: 8px 12px;
+    margin: 10px 0;
+    border-radius: 0 6px 6px 0;
+    font-size: 9pt;
+    page-break-inside: avoid;
+  }
+
+  .callout.warning {
+    border-left-color: #e11d48;
+    background-color: #fff1f2;
+    color: #881337;
+  }
+
+  .callout.tip {
+    border-left-color: #10b981;
+    background-color: #ecfdf5;
+    color: #064e3b;
+  }
+
+  .callout-title {
+    font-weight: 700;
+    margin-bottom: 2px;
+  }
+
+  .diagram-box {
+    background-color: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 12px;
+    font-family: "Cascadia Code", Consolas, monospace;
+    font-size: 8pt;
+    line-height: 1.35;
+    margin: 10px 0;
+    white-space: pre;
+    page-break-inside: avoid;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>MSP Runway Tracker — Dynamic LED Architecture</h1>
+  <div class="subtitle">System Architecture Specification: Real-Time LED Palettes &amp; Brightness across Wi-Fi and BLE</div>
+  <div class="badges">
+    <span class="badge badge-purple">Architecture RFC</span>
+    <span class="badge badge-blue">Wi-Fi + BLE In-Band</span>
+    <span class="badge badge-green">NVS Flash Persistence</span>
+    <span class="badge badge-amber">Hardware Power Clamping</span>
+  </div>
+</header>
+
+<h2>1. Executive Summary &amp; Design Goals</h2>
+<p>
+Currently, LED visual parameters (rollout colors, takeoff afterburner hues, threshold markers, and master brightness) are compiled into the firmware as constants. This architectural document outlines a production design for updating these parameters <strong>on the fly at any time</strong> without re-compiling or re-flashing the ESP32-S3.
+</p>
+
+<h3>Core Engineering Requirements</h3>
+<ul>
+  <li><strong>Unified Transport Agnostic:</strong> Works identically whether operating on the <strong>Home setup</strong> (Wi-Fi REST from Raspberry Pi) or the <strong>Office setup</strong> (Bluetooth Low Energy Nordic UART from PC).</li>
+  <li><strong>Zero Runtime Lag:</strong> Eliminates continuous JSON re-parsing on the ESP32 to preserve full 30+ FPS animation smoothness.</li>
+  <li><strong>Strict Electrical Safety:</strong> Protects against software-induced power spikes (e.g. user requesting 100% white on all 84 LEDs).</li>
+  <li><strong>Cold-Boot Memory:</strong> Remembers the user's custom theme across power cycles using non-volatile flash storage.</li>
+</ul>
+
+<h2>2. The Core Data Structure: <code>LedThemeConfig</code></h2>
+<p>
+All visual configurations are encapsulated in a compact, Plain-Old-Data (POD) struct (~26 bytes) in ESP32 RAM:
+</p>
+
+<pre><code>struct LedThemeConfig {
+    uint8_t  master_brightness;    // 0–255 (Soft user setting; clamped to safe ceiling)
+    
+    // 24-bit RGB values (0xRRGGBB)
+    uint32_t landing_head_rgb;     // Touchdown strobe head (Default: 0xFFFFFF Crisp White)
+    uint32_t landing_tail_rgb;     // Rollout glidepath tail (Default: 0x00FF88 Emerald Green)
+    
+    uint32_t takeoff_head_rgb;     // Acceleration roll head (Default: 0xFFE0A0 Warm White)
+    uint32_t takeoff_tail_rgb;     // Afterburner flame tail (Default: 0xFF4500 Amber/Orange)
+    
+    uint32_t idle_threshold_rgb;   // Inactive runway threshold (Default: 0x002200 Dim Green)
+    uint32_t conflict_warn_rgb;    // Intersecting runway alert (Default: 0xFF0000 Flashing Red)
+    
+    uint16_t version;              // Monotonic version counter for dirty-checking
+};</code></pre>
+
+<h3>Why 24-bit Hex Integers?</h3>
+<ul>
+  <li>Matches FastLED's native <code>CRGB(0xRRGGBB)</code> constructor directly with zero translation cost.</li>
+  <li>Easily serializes to and from standard hex color strings (e.g., <code>"#00FF88"</code> or <code>0x00FF88</code>) across web dashboards and mobile clients.</li>
+</ul>
+
+<h2>3. Unified Transport: In-Band Telemetry Embedding</h2>
+
+<p>
+Rather than creating separate REST endpoints or custom BLE services, theme data is delivered <strong>in-band</strong> inside the existing telemetry payload under an optional <code>theme</code> key:
+</p>
+
+<div class="diagram-box">
+  ┌────────────────────────┐         ┌────────────────────────┐
+  │   Pi Web Dashboard     │         │   Office PC Bridge     │
+  │  (Web UI / Mobile App) │         │   (CLI Flags / GUI)    │
+  └───────────┬────────────┘         └───────────┬────────────┘
+              │                                  │
+              ▼                                  ▼
+ HTTP REST: /api/runway_state           BLE Nordic UART Stream
+              │                                  │
+              └─────────────────┬────────────────┘
+                                │ (JSON with 'theme' block)
+                                ▼
+                 ┌─────────────────────────────┐
+                 │  Unified Payload Deserializer│
+                 └──────────────┬──────────────┘
+                                │
+    ┌───────────────────────────┴───────────────────────────┐
+    ▼ (version == cached)                                   ▼ (version > cached)
+ [ Skip Theme Parse ]                               [ Apply & Sanitize Theme ]
+ Maintain 30+ FPS Loop                                          │
+                                                ┌───────────┴───────────┐
+                                                ▼                       ▼
+                                        [ Update FastLED ]     [ Save to NVS Flash ]
+</div>
+
+<h3>Wire Format Example</h3>
+<pre><code>{
+  "timestamp": 1727845600,
+  "status": "ACTIVE",
+  "active_operations": [ ... ],
+  "theme": {
+    "version": 4,
+    "brightness": 28,
+    "landing_tail": "0x00E5FF",
+    "takeoff_tail": "0xFF3300"
+  }
+}</code></pre>
+
+<h3>Change Detection &amp; Zero-Lag Parsing</h3>
+<ul>
+  <li>On each telemetry update, the ESP32 checks: <code>if (doc["theme"]["version"] == current_theme.version) return;</code></li>
+  <li>If the version is identical, the parser exits immediately, consuming negligible CPU cycles.</li>
+  <li>If the version has incremented, the new values are unpacked, validated against safety limits, applied to FastLED, and written to non-volatile memory.</li>
+</ul>
+
+<h2>4. Platform Handling: Wi-Fi vs. BLE</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width: 25%;">Feature</th>
+      <th style="width: 37%;">Home Setup (Wi-Fi + Raspberry Pi)</th>
+      <th style="width: 38%;">Office Setup (BLE + PC Bridge)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Source of Settings</strong></td>
+      <td>Stored on Raspberry Pi (<code>led_theme.json</code>)</td>
+      <td>Stored on Office PC (<code>office/settings.json</code>)</td>
+    </tr>
+    <tr>
+      <td><strong>User Interface</strong></td>
+      <td>Sliders &amp; color pickers on Pi Web Dashboard (<code>http://msp-tracker.local:8080/settings</code>)</td>
+      <td>CLI flags (<code>bridge.py --brightness 24 --theme sunset</code>) or system tray app</td>
+    </tr>
+    <tr>
+      <td><strong>Delivery Path</strong></td>
+      <td>Injected into <code>/api/runway_state</code> HTTP response</td>
+      <td>Streamed across Nordic UART Service (NUS) RX</td>
+    </tr>
+    <tr>
+      <td><strong>Latency</strong></td>
+      <td>Updates on next 1.5-second polling cycle</td>
+      <td>Near-instantaneous (&lt; 100 ms)</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>5. Hardware Safety Guardrails (The "Sanitizer")</h2>
+
+<div class="callout warning">
+  <div class="callout-title">CRITICAL: Electrical Protection</div>
+  Allowing dynamic color and brightness configuration introduces the hazard of an accidental over-current command (e.g. setting 100% full-white on all 84 WS2812Bs pulls up to <strong>4.2 Amperes</strong>). The firmware must enforce hard safety clamping in code.
+</div>
+
+<h3>Layer 1: Software Brightness Ceiling</h3>
+<p>
+The incoming brightness value is strictly clamped before touching the driver:
+</p>
+<pre><code>#define HARDWARE_MAX_SAFE_BRIGHTNESS  48  // Limits worst-case consumption to ~0.8A
+uint8_t target_brightness = doc["theme"]["brightness"] | current_theme.master_brightness;
+current_theme.master_brightness = constrain(target_brightness, 5, HARDWARE_MAX_SAFE_BRIGHTNESS);
+FastLED.setBrightness(current_theme.master_brightness);</code></pre>
+
+<h3>Layer 2: FastLED Dynamic Power Management</h3>
+<p>
+FastLED features an integrated milliwatt power estimator. If simultaneous crosswind departures and arrivals illuminate multiple runways with high-draw colors, FastLED dynamically scales back luminance:
+</p>
+<pre><code>// Clamp overall power draw to 5V @ 1200mA (1.2 Amperes)
+FastLED.setMaxPowerInVoltsAndMilliamps(5, 1200);</code></pre>
+
+<h2>6. Non-Volatile Storage (NVS) Lifecycle</h2>
+<p>
+The ESP32 uses its internal Flash Non-Volatile Storage (<code>Preferences.h</code>) to retain customizations across power cycles:
+</p>
+<ol>
+  <li><strong>Boot Initialization:</strong> During <code>setup()</code>, the firmware loads saved theme keys from NVS before network or BLE initialization begins. The board immediately boots with the user's preferred colors.</li>
+  <li><strong>Flash Wear Protection:</strong> NVS writes only occur when the version number increases, guaranteeing that continuous telemetry streaming never creates flash wear.</li>
+</ol>
+
+<h2>7. Future Implementation Checklist</h2>
+<ul>
+  <li>[ ] <strong>ESP32:</strong> Implement <code>theme_manager.h</code> / <code>theme_manager.cpp</code> with NVS loader and safety clamps.</li>
+  <li>[ ] <strong>ESP32:</strong> Hook <code>applyThemeIfPresent(doc["theme"])</code> into <code>network_client.cpp</code> and <code>ble_client.cpp</code>.</li>
+  <li>[ ] <strong>Raspberry Pi:</strong> Add persistent <code>led_theme.json</code> and inject the <code>"theme"</code> block into <code>/api/runway_state</code>.</li>
+  <li>[ ] <strong>Raspberry Pi Web UI:</strong> Add a settings tab to the web dashboard with brightness sliders and color pickers.</li>
+  <li>[ ] <strong>Office Bridge:</strong> Add <code>--theme</code> and <code>--brightness</code> parameters to <code>office/bridge.py</code>.</li>
+</ul>
+
+</body>
+</html>
+
