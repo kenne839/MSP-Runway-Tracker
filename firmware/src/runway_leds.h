@@ -32,6 +32,7 @@ void setRunwayIdle(int runway_idx);
 int getRunwayIndex(const char* runway_name);
 void resetAllRunwaysToIdle();
 bool renderRunwayAnimations();
+void startLedAnimationTask();
 void showConnectionStatusLed(bool connected);
 void getRecentlyActiveRunwaysStr(char* out_buf, size_t buf_len);
 bool hasHadEventOccurred();

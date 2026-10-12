@@ -45,6 +45,7 @@ void setup() {
     initThemeManager();
     showBootScreen("Initializing LEDs...");
     initLeds();
+    startLedAnimationTask();
     delay(400);
 
     // 4. Initialize Communications
@@ -69,12 +70,7 @@ void setup() {
 }
 
 void loop() {
-    // 1. Continuous LED Animation Rendering (~71.4 FPS, comet or idle yellow strobe)
-    if (renderRunwayAnimations()) {
-#if !defined(BOARD_MODE_BLE)
-        recordFrameRendered();
-#endif
-    }
+    // 1. Core 0 background Telnet console handling (LED animations run continuously on Core 1)
 #if !defined(BOARD_MODE_BLE)
     handleTelnetServer();
 #endif
@@ -110,10 +106,16 @@ void loop() {
     // 4. Render OLED display (handles 3-second multi-flight cycling and idle state)
     renderDisplayLoop();
 
-    // 4. User button press detection (SW1 / GPIO0)
-    if (digitalRead(PIN_USER_BUTTON) == LOW) {
-        delay(50); // Debounce
-        if (digitalRead(PIN_USER_BUTTON) == LOW) {
+    // 4. Non-blocking user button press detection (SW1 / GPIO0)
+    static bool button_last_state = HIGH;
+    static uint32_t last_button_check = 0;
+    bool current_button_state = digitalRead(PIN_USER_BUTTON);
+
+    if (current_button_state != button_last_state && (millis() - last_button_check > 50)) {
+        last_button_check = millis();
+        button_last_state = current_button_state;
+
+        if (current_button_state == LOW) { // Falling edge (button pressed)
             wakeDisplay(); // Instantly wake OLED if asleep and reset 5-minute timer
 #if defined(BOARD_MODE_DEVKIT)
             static uint8_t demo_cycle = 0;
@@ -174,9 +176,6 @@ void loop() {
             Serial.println(F("[Button] User SW1 pressed. Refreshing display."));
             renderDisplayLoop();
 #endif
-            while (digitalRead(PIN_USER_BUTTON) == LOW) {
-                delay(10);
-            }
         }
     }
 }

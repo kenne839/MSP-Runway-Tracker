@@ -1,6 +1,21 @@
 #include "runway_leds.h"
 #include "theme_manager.h"
 
+#if !defined(BOARD_MODE_BLE)
+#include "network_client.h"
+#endif
+
+static SemaphoreHandle_t runway_mutex = nullptr;
+static TaskHandle_t led_task_handle = nullptr;
+
+#define LOCK_RUNWAYS()    if (runway_mutex) xSemaphoreTake(runway_mutex, portMAX_DELAY)
+#define UNLOCK_RUNWAYS()  if (runway_mutex) xSemaphoreGive(runway_mutex)
+
+struct RunwayLockGuard {
+    RunwayLockGuard() { LOCK_RUNWAYS(); }
+    ~RunwayLockGuard() { UNLOCK_RUNWAYS(); }
+};
+
 static CRGB leds[NUM_LEDS];
 static bool has_had_event = true; // Default true so the prevailing runway (30R) slowly strobes from power-on
 
@@ -100,6 +115,9 @@ static void setDevKitRgb(uint8_t r, uint8_t g, uint8_t b) {
 #endif
 
 void initLeds() {
+    if (runway_mutex == nullptr) {
+        runway_mutex = xSemaphoreCreateMutex();
+    }
     uint8_t init_brightness = getThemeConfig().master_brightness;
 #if defined(BOARD_MODE_DEVKIT)
     // Enable RGB power-gate pin if present on this board variant
@@ -154,12 +172,14 @@ int getRunwayIndex(const char* runway_name) {
 }
 
 void setRunwayIdle(int runway_idx) {
+    RunwayLockGuard lock;
     if (runway_idx >= 0 && runway_idx < 4) {
         runways[runway_idx].state = RW_STATE_IDLE;
     }
 }
 
 void resetAllRunwaysToIdle() {
+    RunwayLockGuard lock;
     for (int i = 0; i < 4; i++) {
         runways[i].state = RW_STATE_IDLE;
     }
@@ -189,6 +209,7 @@ void setRunwayState(const char* runway_name, const char* action_str, float progr
 
     if (op == RW_STATE_IDLE) return;
 
+    RunwayLockGuard lock;
     has_had_event = true;
 
     // Enforce Airport Operational Flow Constraint:
@@ -251,6 +272,7 @@ static void addLedColor(uint8_t index, CRGB color) {
 
 void getRecentlyActiveRunwaysStr(char* out_buf, size_t buf_len) {
     if (!out_buf || buf_len == 0) return;
+    RunwayLockGuard lock;
     out_buf[0] = '\0';
     if (!has_had_event) {
         return;
@@ -273,12 +295,14 @@ void getRecentlyActiveRunwaysStr(char* out_buf, size_t buf_len) {
 
 bool renderRunwayAnimations() {
     uint32_t now = millis();
-    if (now - last_frame_time < 14) { // ~71.4 FPS animation loop (smooth dithering & strobes)
+    if (last_frame_time != 0 && (now - last_frame_time) < 10) { // ~71.4 FPS animation loop limiter
         return false;
     }
     float dt = (last_frame_time == 0) ? 0.014f : (float)(now - last_frame_time) / 1000.0f;
     if (dt > 0.050f) dt = 0.050f; // Clamp to 50ms max to prevent jumps during network latency
     last_frame_time = now;
+
+    RunwayLockGuard lock;
 
 #if defined(BOARD_MODE_DEVKIT)
     // DevKit Test Mode:
@@ -471,15 +495,45 @@ bool renderRunwayAnimations() {
 }
 
 void showConnectionStatusLed(bool connected) {
+    if (connected) return;
+    RunwayLockGuard lock;
 #if defined(BOARD_MODE_DEVKIT)
-    if (!connected) {
-        bool blink = (millis() % 1000 < 500);
-        setDevKitRgb(blink ? 120 : 0, 0, 0);
-    }
+    bool blink = (millis() % 1000 < 500);
+    setDevKitRgb(blink ? 120 : 0, 0, 0);
 #else
-    if (!connected) {
-        leds[0] = (millis() % 1000 < 500) ? CRGB(180, 0, 0) : CRGB::Black;
-        FastLED.show();
-    }
+    leds[0] = (millis() % 1000 < 500) ? CRGB(180, 0, 0) : CRGB::Black;
+    FastLED.show();
 #endif
+}
+
+static void ledAnimationTask(void* pvParameters) {
+    TickType_t xLastWakeTime = xTaskGetTickCount();
+    const TickType_t xFrequency = pdMS_TO_TICKS(14); // ~71.4 FPS target
+
+    for (;;) {
+        bool rendered = renderRunwayAnimations();
+#if !defined(BOARD_MODE_BLE)
+        if (rendered) {
+            recordFrameRendered();
+        }
+#endif
+        vTaskDelayUntil(&xLastWakeTime, xFrequency);
+    }
+}
+
+void startLedAnimationTask() {
+    if (runway_mutex == nullptr) {
+        runway_mutex = xSemaphoreCreateMutex();
+    }
+    if (led_task_handle == nullptr) {
+        xTaskCreatePinnedToCore(
+            ledAnimationTask,
+            "LED_Anim_Task",
+            4096,
+            nullptr,
+            2, // Priority 2
+            &led_task_handle,
+            1  // Core 1
+        );
+    }
 }

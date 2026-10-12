@@ -131,12 +131,49 @@ The console streams live telemetry, including:
 
 ---
 
+## Dual-Core FreeRTOS Architecture & Real-Time Rearchitecture
+
+The ESP32-S3 features two 240 MHz Xtensa LX7 processor cores (Core 0 and Core 1). To eliminate jitter and prevent HTTP polling, Wi-Fi reconnection, or I2C OLED display updates from causing micro-stutters in WS2812 LED animations, the firmware employs asymmetric dual-core task distribution:
+
+```mermaid
+flowchart TD
+    subgraph CORE1["Core 1: Dedicated Animation Core"]
+        ANIM["ledAnimationTask (Priority 2)<br/>Pinned to Core 1 via xTaskCreatePinnedToCore"]
+        RMT["FastLED.show() / neopixelWrite<br/>~71.4 FPS via vTaskDelayUntil(14ms)"]
+        ANIM --> RMT
+    end
+
+    subgraph CORE0["Core 0: Protocol & Display Core"]
+        LOOP["Arduino loopTask (Priority 1)<br/>Runs loop() on Core 0"]
+        HTTP["HTTP Client (pollTelemetryData)<br/>1.5s poll with 1.2s abort timeout"]
+        OLED["UCTRONICS I2C Display (renderDisplayLoop)<br/>SDA: GPIO1 / SCL: GPIO2"]
+        WIFI["Wi-Fi / TCP-IP Stack & Telnet Server"]
+        BTN["Non-Blocking Button Edge Trigger (SW1 / GPIO0)"]
+        LOOP --> HTTP
+        LOOP --> OLED
+        LOOP --> WIFI
+        LOOP --> BTN
+    end
+
+    MUTEX[("FreeRTOS runway_mutex<br/>RAII RunwayLockGuard")]
+    CORE0 <-->|Thread-Safe Runway State Updates| MUTEX
+    MUTEX <-->|Read Runway State & Spatial Comets| CORE1
+```
+
+### Key Concurrency & Reliability Enhancements:
+1. **Dedicated Core 1 Animation Task:** `startLedAnimationTask()` spawns `ledAnimationTask` pinned to Core 1 at Priority 2. It renders WS2812 LED strips at ~71.4 FPS using `vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(14))`. When sleeping, Core 1 yields cleanly; when waking, it preempts lower priority tasks to ensure zero-jitter frame timing.
+2. **Thread Safety with FreeRTOS Mutexes:** Shared runway states, comets, and active operations are protected across cores by `runway_mutex` through C++ RAII `RunwayLockGuard`. BLE RX buffers are similarly protected against cross-thread corruption by `ble_mutex` and `BleLockGuard`.
+3. **Non-Blocking User Input:** Button debouncing on `SW1` (`GPIO0`) uses timestamp-based edge detection rather than blocking `delay(50)` and `while(digitalRead() == LOW)` loops, keeping the display and network loops responsive.
+4. **Zero-Allocation HTTP Headers:** Telemetry heartbeat headers (`X-ESP32-RSSI`, `X-ESP32-Heap`, `X-ESP32-Uptime`, `X-ESP32-FPS`) format directly into stack-allocated `char[16]` buffers with `snprintf`, eliminating dynamic heap `String` fragmentation.
+
+---
+
 ## Optical Anti-Stepping & Perceptual Gamma (Options B, C, D)
 
 To eliminate discrete stepping jumps at low master brightness levels (such as night circadian floor $B=8$) and ensure physical 5050 RGB dies remain optically blended:
-1. **16-Bit Temporal Error-Diffusion Dithering (Option B):** Accumulates fractional PWM remainders across frames at 71.4 Hz to simulate 16-bit dimming precision without forcing unlit dies to 1 LSB. Full PCB mode enables `FastLED.setDither(BINARY_DITHER)`.
+1. **Integer Scaling & Hardware Dither Elimination (Option B):** Software temporal dithering produces 5–15 Hz flicker in human peripheral vision due to internal WS2812 PWM interactions. Stable integer rounding `((r * mb + 127) / 255)` with `FastLED.setDither(DISABLE_DITHER)` completely eliminates frantic strobing.
 2. **CIE 1931 Perceptual Lightness Table (Option C):** Maps linear PWM levels to human logarithmic perception ($L \approx Y^{2.8}$) via a 256-byte PROGMEM lookup table. Eliminates flat-bottomed breathing and comet tail "cliffing" into blackness.
-3. **71.4 FPS Engine with Delta-Time Physics (Option D):** Throttles animation updates to $14\text{ ms}$ intervals with $\Delta t$ scaling, guaranteeing physically constant 4.5-second comet rolls regardless of network polling delays or I2C OLED refreshes.
+3. **71.4 FPS Engine with Delta-Time Physics (Option D):** Regulates animation updates to $14\text{ ms}$ intervals with $\Delta t$ scaling, guaranteeing physically constant 4.5-second comet rolls regardless of network polling delays or I2C OLED refreshes.
 
 ---
 

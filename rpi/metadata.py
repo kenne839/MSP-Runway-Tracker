@@ -102,7 +102,7 @@ class MetadataResolver:
         if hex_code:
             try:
                 url = f"https://hexdb.io/api/v1/aircraft/{hex_code}"
-                res = requests.get(url, timeout=3, verify=False)
+                res = requests.get(url, timeout=1.5, verify=False)
                 if res.status_code == 200:
                     data = res.json()
                     resolved = data.get("ICAOTypeCode") or data.get("Type")
@@ -115,7 +115,7 @@ class MetadataResolver:
             if type_code == "UNKNOWN":
                 try:
                     url = f"https://api.adsbdb.com/v0/aircraft/{hex_code}"
-                    res = requests.get(url, timeout=3)
+                    res = requests.get(url, timeout=1.5)
                     if res.status_code == 200:
                         data = res.json()
                         ac = data.get("response", {}).get("aircraft", {})
@@ -252,7 +252,7 @@ class MetadataResolver:
                     "Chrome/122.0.0.0 Safari/537.36"
                 )
             }
-            res = requests.get(url, headers=headers, timeout=4)
+            res = requests.get(url, headers=headers, timeout=2.0)
             if res.status_code in (429, 403):
                 MetadataResolver._flightaware_cooldown_until = time.time() + 600.0
                 print(f"[FlightAware] Notice: HTTP {res.status_code} detected. Cooldown activated for 10 min.")
@@ -442,7 +442,7 @@ class MetadataResolver:
         # 5. Fallback: Query adsbdb.com API (secondary fallback if FlightAware has no live data)
         try:
             url = f"{ADSDB_ROUTES_URL}/{callsign}"
-            res = requests.get(url, headers={"User-Agent": "MSP-Runway-Tracker/1.0"}, timeout=3)
+            res = requests.get(url, headers={"User-Agent": "MSP-Runway-Tracker/1.0"}, timeout=1.5)
             if res.status_code == 200:
                 data = res.json()
                 fr = data.get("response", {}).get("flightroute", {})
@@ -473,7 +473,7 @@ class MetadataResolver:
                 url,
                 headers=self.auth.get_headers(),
                 auth=self.auth.get_basic_auth(),
-                timeout=3,
+                timeout=2.0,
                 verify=False
             )
             if res.status_code == 200:

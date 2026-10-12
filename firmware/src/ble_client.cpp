@@ -17,6 +17,15 @@ static BLECharacteristic* pRxCharacteristic = nullptr;
 static bool device_connected = false;
 static bool old_device_connected = false;
 
+static SemaphoreHandle_t ble_mutex = nullptr;
+#define LOCK_BLE()   if (ble_mutex) xSemaphoreTake(ble_mutex, portMAX_DELAY)
+#define UNLOCK_BLE() if (ble_mutex) xSemaphoreGive(ble_mutex)
+
+struct BleLockGuard {
+    BleLockGuard() { LOCK_BLE(); }
+    ~BleLockGuard() { UNLOCK_BLE(); }
+};
+
 static String incoming_buffer = "";
 static bool new_payload_ready = false;
 static String latest_payload = "";
@@ -37,6 +46,7 @@ class RxCallbacks : public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic* pCharacteristic) override {
         std::string rxValue = pCharacteristic->getValue();
         if (rxValue.length() > 0) {
+            BleLockGuard lock;
             for (size_t i = 0; i < rxValue.length(); i++) {
                 char c = rxValue[i];
                 if (c == '\n' || c == '\r') {
@@ -54,6 +64,9 @@ class RxCallbacks : public BLECharacteristicCallbacks {
 };
 
 void initBleClient() {
+    if (ble_mutex == nullptr) {
+        ble_mutex = xSemaphoreCreateMutex();
+    }
     Serial.println(F("[BLE] Initializing Bluetooth Low Energy on ESP32-S3..."));
     BLEDevice::init(BLE_DEVICE_NAME);
     BLEDevice::setMTU(512);
@@ -190,23 +203,34 @@ bool pollBleTelemetry(DisplayTelemetryData& out_telemetry) {
         old_device_connected = device_connected;
     }
 
-    // Also support fallback USB Serial input
-    while (Serial.available()) {
-        char c = (char)Serial.read();
-        if (c == '\n' || c == '\r') {
-            if (incoming_buffer.length() > 0) {
-                latest_payload = incoming_buffer;
-                new_payload_ready = true;
-                incoming_buffer = "";
+    String payload_to_process = "";
+    bool has_new_payload = false;
+
+    {
+        BleLockGuard lock;
+        // Also support fallback USB Serial input
+        while (Serial.available()) {
+            char c = (char)Serial.read();
+            if (c == '\n' || c == '\r') {
+                if (incoming_buffer.length() > 0) {
+                    latest_payload = incoming_buffer;
+                    new_payload_ready = true;
+                    incoming_buffer = "";
+                }
+            } else {
+                incoming_buffer += c;
             }
-        } else {
-            incoming_buffer += c;
+        }
+
+        if (new_payload_ready) {
+            payload_to_process = latest_payload;
+            new_payload_ready = false;
+            has_new_payload = true;
         }
     }
 
-    if (new_payload_ready) {
-        new_payload_ready = false;
-        return processPayloadJson(latest_payload, out_telemetry);
+    if (has_new_payload) {
+        return processPayloadJson(payload_to_process, out_telemetry);
     }
 
     return false;

@@ -10,6 +10,7 @@ import threading
 import datetime
 import requests
 import urllib3
+import copy
 from .config import (
     MSP_BBOX,
     MIN_VELOCITY_MS,
@@ -92,7 +93,7 @@ class TelemetryState:
         with self._lock:
             # Ensure latest theme is always attached
             self._state["theme"] = self.theme_manager.get_theme()
-            return json.loads(json.dumps(self._state))
+            return copy.deepcopy(self._state)
 
     def update_theme(self, updates: dict) -> dict:
         new_theme = self.theme_manager.update_theme(updates)
@@ -221,9 +222,9 @@ class TelemetryTracker:
         self.current_poll_interval = OPENSKY_POLL_INTERVAL
         self.opensky_lockout_until = 0.0
 
-        # OpenSky daily quota tracking & auto-backoff
+        # OpenSky daily quota tracking & auto-backoff (resets at 00:00 UTC)
         self.daily_requests_count = 0
-        self.daily_reset_date = datetime.date.today()
+        self.daily_reset_date = datetime.datetime.now(datetime.timezone.utc).date()
         self.quota_limit = 4000 if self.auth.is_authenticated() else 400
 
         auth_desc = self.auth.get_auth_status_str()
@@ -269,8 +270,8 @@ class TelemetryTracker:
         headers = self.auth.get_headers()
         basic_auth = self.auth.get_basic_auth()
 
-        # Update daily requests counter (resets at local midnight)
-        today = datetime.date.today()
+        # Update daily requests counter (resets at 00:00 UTC)
+        today = datetime.datetime.now(datetime.timezone.utc).date()
         if today != self.daily_reset_date:
             self.daily_requests_count = 0
             self.daily_reset_date = today
@@ -325,7 +326,10 @@ class TelemetryTracker:
             self.last_fetch_success = True
             self.last_successful_poll_ts = int(time.time())
             self.consecutive_failures = 0
-            self.current_poll_interval = OPENSKY_POLL_INTERVAL
+            if self.quota_limit and self.daily_requests_count >= int(self.quota_limit * 0.85):
+                self.current_poll_interval = max(OPENSKY_POLL_INTERVAL, 40.0)
+            else:
+                self.current_poll_interval = OPENSKY_POLL_INTERVAL
             return parsed
         except requests.exceptions.HTTPError as e:
             self.consecutive_failures += 1

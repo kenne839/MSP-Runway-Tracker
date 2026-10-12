@@ -44,13 +44,19 @@ class DatisService:
     def get_datis(self) -> dict | None:
         """Returns the latest parsed D-ATIS dictionary, or None if unavailable/unparseable."""
         now = time.time()
-        if now - self._last_poll >= self.poll_interval:
-            threading.Thread(target=self._fetch_datis, daemon=True, name="DatisFetchWorker").start()
+        spawn_thread = False
         with self._lock:
-            return dict(self._datis) if self._datis else None
+            if now - self._last_poll >= self.poll_interval:
+                self._last_poll = now
+                spawn_thread = True
+            current_datis = dict(self._datis) if self._datis else None
+
+        if spawn_thread:
+            threading.Thread(target=self._fetch_datis, daemon=True, name="DatisFetchWorker").start()
+
+        return current_datis
 
     def _fetch_datis(self):
-        self._last_poll = time.time()
         req = urllib.request.Request(
             DATIS_URL,
             headers={"User-Agent": "KMSP-Runway-Tracker/1.0 (Aviation Telemetry Hub)"}

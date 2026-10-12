@@ -98,6 +98,11 @@ Both boards feature a **3-Pin UART Header `J2`** for external USB-to-UART progra
   - **Airframes:** Decodes transponder hex codes to readable aircraft types (e.g., `A21N` &rarr; *Airbus A321neo*, `B738` &rarr; *Boeing 737-800*).
   - **Routes:** Resolves origin airports for arrivals and destination airports for departures.
   - **Dynamic Fallback:** Queries [HexDB](https://hexdb.io) for unseen airframes and caches results locally.
+- **Dual-Core FreeRTOS Rearchitecture:**
+  - Dedicated **Core 1** FreeRTOS task (`ledAnimationTask`) at Priority 2 running WS2812 rendering at sustained ~71.4 FPS via `vTaskDelayUntil(14ms)`.
+  - Core 0 runs network polling, Wi-Fi health checks, Telnet server, and I2C OLED display rendering without causing micro-stutters.
+  - Multi-threaded synchronization with FreeRTOS mutexes (`runway_mutex`, `ble_mutex`) via C++ RAII lock guards.
+  - Non-blocking button edge detection on `SW1` (`GPIO0`) and zero-allocation stack HTTP headers.
 - **Decoupled JSON Interface:** Writes atomic telemetry snapshots to `runway_state.json` and serves `/api/runway_state`.
 
 ---
@@ -119,7 +124,7 @@ Both boards feature a **3-Pin UART Header `J2`** for external USB-to-UART progra
 | [`airlines.json`](airlines.json) | Static mapping of 3-letter ICAO airline designators to commercial operator names. |
 | [`airframes.json`](airframes.json) | Static mapping of ICAO aircraft designators to clean, readable names. |
 | [`msp_aircraft_db.json`](msp_aircraft_db.json) | Local persistent registry of 480k+ 24-bit ICAO transponder addresses mapped to type codes. |
-| [`tests/`](tests/) | Unit test suite covering spatial projections, route resolution, solar ephemeris, and LED themes. |
+| [`tests/`](tests/) | Comprehensive 72-test suite covering spatial projections, route resolution, D-ATIS, METAR weather, solar ephemeris, and LED themes. |
 | [`requirements.txt`](requirements.txt) | Root Python dependencies. |
 
 ---

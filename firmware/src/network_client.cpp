@@ -85,11 +85,19 @@ bool pollTelemetryData(DisplayTelemetryData& out_telemetry) {
     // 1.2s timeout prevents long stalls on LAN, keeping LED animations smooth
     http.setTimeout(1200);
 
-    // Send ESP32 Health Heartbeat to Raspberry Pi
-    http.addHeader("X-ESP32-RSSI", String(WiFi.RSSI()));
-    http.addHeader("X-ESP32-Heap", String(ESP.getFreeHeap()));
-    http.addHeader("X-ESP32-Uptime", String((uint32_t)(millis() / 1000)));
-    http.addHeader("X-ESP32-FPS", String(current_fps));
+    // Send ESP32 Health Heartbeat to Raspberry Pi with zero heap allocations
+    char val_buf[16];
+    snprintf(val_buf, sizeof(val_buf), "%d", WiFi.RSSI());
+    http.addHeader("X-ESP32-RSSI", val_buf);
+
+    snprintf(val_buf, sizeof(val_buf), "%u", ESP.getFreeHeap());
+    http.addHeader("X-ESP32-Heap", val_buf);
+
+    snprintf(val_buf, sizeof(val_buf), "%u", (uint32_t)(millis() / 1000));
+    http.addHeader("X-ESP32-Uptime", val_buf);
+
+    snprintf(val_buf, sizeof(val_buf), "%u", current_fps);
+    http.addHeader("X-ESP32-FPS", val_buf);
 
     int httpCode = http.GET();
     if (httpCode != HTTP_CODE_OK) {
