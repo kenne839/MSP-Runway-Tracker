@@ -402,7 +402,16 @@ To ensure your home and office setups never exhaust rate limits or interfere wit
   3. **Community ADS-B Database (`adsbdb.com`):** Queries Planebase / David Taylor crowdsourced global schedules without requiring API keys (~95% coverage on US domestic and regional carriers).
   4. **OpenSky Network Routes (`/api/routes`):** Fallback for international or edge-case routes.
   5. Dynamically writes newly resolved flights back to `msp_routes_cache.json` (batched every 5 minutes to protect MicroSD card endurance).
-- **Crosswind Crab Angles:** In heavy winter crosswinds, aircraft track over ground can deviate by $10^\circ\text{--}20^\circ$ from heading due to wind correction angles. The heading tolerance is set to $\pm 25^\circ$ to accommodate crab angles.
+- **Safe Power-Off & Hardware Relocation:**
+  When moving the Raspberry Pi to a new wall outlet or shutting down:
+  > [!CAUTION]
+  > Never pull the micro-USB power cable while Linux is running. Abrupt power cuts can corrupt the MicroSD card filesystem (`ext4` journal corruption) and render the card unbootable.
+  1. **Issue Safe Shutdown:** From PowerShell or terminal:
+     ```bash
+     ssh pi@192.168.0.213 "sudo poweroff"
+     ```
+  2. **Watch the Green Activity LED (`ACT`):** Wait ~5–10 seconds until the green LED ceases flashing and turns steady or off. The red power LED will remain lit.
+  3. **Unplug & Relocate:** It is now safe to unplug the power cord. When plugged into the new outlet, the Pi powers on automatically, and `msp-tracker.service` resumes within ~20–30 seconds.
 
 ---
 

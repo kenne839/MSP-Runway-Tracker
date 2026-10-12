@@ -157,6 +157,31 @@ To guarantee continuous network reachability:
 
 ---
 
+## Safe Power-Off & Relocation Procedure (Protecting MicroSD Card)
+
+When moving the Raspberry Pi to a new outlet or shutting down:
+> [!CAUTION]
+> Never pull the micro-USB power cord while Linux is actively running. Abrupt power loss during journal or logging writes can corrupt the MicroSD filesystem (`ext4` journal errors) and prevent the Pi from booting.
+
+### 1. Send the Graceful Power-Off Command
+From PowerShell, Windows Terminal, macOS, or an SSH app on your phone:
+```bash
+ssh pi@192.168.0.213 "sudo poweroff"
+```
+*(Or if already logged in via SSH: `sudo poweroff`)*
+
+### 2. Observe the Hardware LEDs (~5–10 Seconds)
+* **Green Activity LED (`ACT`):** Will flash rapidly as Linux flushes write caches and unmounts filesystems, then emit a steady 10-flash sequence or go dark.
+* **Red Power LED (`PWR`):** Stays illuminated (indicating 5V input power).
+* **Safe to Unplug:** Once the Green `ACT` LED ceases irregular flashing and remains steady/off, you can safely pull the power plug.
+
+### 3. Move and Reconnect
+1. Move the Pi to the new outlet and plug in the power adapter.
+2. The Pi automatically powers on (no power button needed).
+3. The `msp-tracker.service` daemon starts automatically on boot (~20–30 seconds), and downstream ESP32 displays will automatically reconnect.
+
+---
+
 ## JSON Payload Schema (`/api/runway_state`)
 
 ```json

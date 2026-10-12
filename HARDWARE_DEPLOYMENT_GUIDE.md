@@ -139,3 +139,15 @@ Expected log output:
 3. Power the unit continuously from a standard 5V USB-C wall adapter.
 4. The system will automatically reconnect to Wi-Fi, poll the Raspberry Pi daemon, and run 24/7 with zero maintenance.
 
+### Safe Raspberry Pi Power-Off & Relocation
+If you ever need to unplug or relocate the Raspberry Pi 3A+:
+> [!CAUTION]
+> Never pull the micro-USB power cord on a running Raspberry Pi. Cutting power during disk writes risks corrupting the MicroSD card (`ext4` journal corruption).
+
+1. **Clean Shutdown:** From a terminal or phone SSH:
+   ```bash
+   ssh pi@192.168.0.213 "sudo poweroff"
+   ```
+2. **Wait for Green LED:** Wait ~5–10 seconds until the green `ACT` LED stops flashing and turns off (or emits steady blinks). The red `PWR` LED remains on.
+3. **Unplug & Move:** Safe to unplug. Once reconnected to power, the Pi powers on automatically and resumes the tracking service within 20–30 seconds.
+
