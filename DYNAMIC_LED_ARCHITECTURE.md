@@ -157,12 +157,41 @@ The system features an autonomous astronomical circadian curve that tracks the l
 
 ---
 
-## 7. Implementation Status
+---
+
+## 7. Optical Anti-Stepping, Perceptual Gamma & Dithering Engine
+
+To eliminate visible LED stepping at low brightness levels (such as during nighttime circadian floors or baseline approach glows) and prevent the physical RGB dies inside 5050 packages from being individually identifiable, three optical rendering enhancements are integrated into the animation pipeline:
+
+### A. Software Temporal Error-Diffusion Dithering (16-Bit Fractional PWM)
+Standard 8-bit WS2812B PWM controllers offer only 256 discrete duty cycles. At night brightness levels ($B = 8$), an 8-bit channel has only 1 to 3 integer levels, making fractional steps coarse and causing color shifts.
+* **16-Bit Fixed-Point Accumulators:** The firmware maintains 16-bit residual accumulators (`dither_accum_r`, `g`, `b`). Fractional remainders are accumulated and diffused across consecutive frames.
+* **Frequency:** Driven at 71.4 Hz, sub-integer steps alternate between adjacent integers at a rate far exceeding the human flicker fusion threshold ($~60\text{ Hz}$), rendering fractional levels analog and smooth.
+* **Die Blending:** Eliminates the hard clamping `max(1, ...)` that previously forced unlit dies to 1 LSB, preserving true color ratios and preventing pinpoint die separation.
+* **Full PCB Hardware:** `FastLED.setDither(BINARY_DITHER)` is explicitly activated across all 84 LEDs.
+
+### B. CIE 1931 Perceptual Lightness Correction ($L \approx Y^{2.8}$)
+Human visual perception of brightness is non-linear and approximately logarithmic according to Stevens' Power Law:
+$$L = \begin{cases} \frac{Y}{903.3} & Y \le 8 \\ \left(\frac{Y + 16}{116}\right)^3 & Y > 8 \end{cases}$$
+* **PROGMEM Lookup Table:** A precomputed 256-byte `cie1931` table maps linear animation values into human perceptual lightness space with zero runtime CPU floating-point overhead.
+* **IDLE Breathing:** Applied to sinusoidal respiration cycles to eliminate flat "bottoming-out" and stepped transitions near zero.
+* **Runway Comet Tails:** Applied to comet rollout and afterburner fade factors ($u \in [0.5, 1.0]$) to eliminate abrupt "cliffing" into blackness, yielding a natural, continuous optical taper.
+
+### C. 71.4 FPS High-Rate Animation & Delta-Time Physics
+* **Frame Rate:** Throttled at $14\text{ ms}$ intervals ($\approx 71.4\text{ FPS}$), providing rapid dithering transitions that eliminate sub-harmonic peripheral shimmering.
+* **Delta-Time Integration ($\Delta t$):** Comet translations and idle strobe sweeps use delta-time scaling ($\Delta t = (t_{\text{now}} - t_{\text{last}}) / 1000.0\text{ s}$) with a $50\text{ ms}$ clamping ceiling. Physical rollout speeds (4.5s full runway travel) remain constant regardless of Wi-Fi polling latency or OLED draw times.
+
+---
+
+## 8. Implementation Status
 
 - [x] **ESP32 Firmware:**
   - Implemented `theme_manager.h` and `theme_manager.cpp`.
   - Added volatile RAM circadian updates and NVS flash persistence.
   - Full support across `network_client.cpp`, `ble_client.cpp`, and `runway_leds.cpp`.
+  - Added 16-bit temporal error-diffusion dithering in `setDevKitRgb` and `FastLED.setDither(BINARY_DITHER)`.
+  - Added 256-byte PROGMEM `cie1931` perceptual gamma lookup table.
+  - Upgraded animation loop to 71.4 FPS with frame-independent delta-time comet physics.
 - [x] **Raspberry Pi Daemon:**
   - Implemented `rpi/solar.py` with pure offline NOAA ephemeris.
   - Implemented `rpi/theme.py` with 5 presets, solar elevation, and smoothstep brightness.

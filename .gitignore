@@ -44,3 +44,6 @@ led_theme.json
 # Local Office Bridge runtime files
 .ble_cache.json
 .bridge.pid
+
+# Persistent local agent context scratchpad
+.agent_context.md

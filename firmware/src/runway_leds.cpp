@@ -51,13 +51,41 @@ bool hasHadEventOccurred() {
     return has_had_event;
 }
 
+// Precomputed CIE 1931 Perceptual Lightness Lookup Table (0-255)
+// Maps linear duty cycles to human logarithmic luminance perception, eliminating steps at low duty cycles.
+static const uint8_t PROGMEM cie1931[256] = {
+    0,   0,   0,   0,   0,   1,   1,   1,   1,   1,   1,   1,   1,   1,   2,   2,
+    2,   2,   2,   2,   3,   3,   3,   3,   4,   4,   4,   4,   5,   5,   5,   5,
+    6,   6,   6,   7,   7,   7,   8,   8,   8,   9,   9,  10,  10,  10,  11,  11,
+   12,  12,  13,  13,  14,  14,  15,  15,  16,  16,  17,  18,  18,  19,  19,  20,
+   21,  21,  22,  23,  23,  24,  25,  26,  26,  27,  28,  29,  30,  30,  31,  32,
+   33,  34,  35,  36,  37,  38,  39,  40,  41,  42,  43,  44,  45,  46,  47,  48,
+   50,  51,  52,  53,  54,  56,  57,  58,  59,  61,  62,  63,  65,  66,  68,  69,
+   71,  72,  74,  75,  77,  78,  80,  82,  83,  85,  87,  88,  90,  92,  94,  96,
+   98, 100, 102, 104, 106, 108, 110, 112, 114, 116, 118, 121, 123, 125, 127, 130,
+  132, 134, 137, 139, 142, 144, 147, 149, 152, 154, 157, 160, 162, 165, 168, 171,
+  173, 176, 179, 182, 185, 188, 191, 194, 197, 200, 203, 207, 210, 213, 216, 220,
+  223, 227, 230, 234, 237, 241, 244, 248, 251, 255
+};
+
+static inline uint8_t applyCieGamma(uint8_t val) {
+    return pgm_read_byte(&cie1931[val]);
+}
+
 #if defined(BOARD_MODE_DEVKIT)
 static void setDevKitRgb(uint8_t r, uint8_t g, uint8_t b) {
     uint8_t mb = getThemeConfig().master_brightness;
-    // Scale r, g, b by master_brightness (clamped 5 to 48 / safe range)
-    uint8_t sr = (r > 0 && mb > 0) ? (uint8_t)max(1, (r * mb) / 255) : 0;
-    uint8_t sg = (g > 0 && mb > 0) ? (uint8_t)max(1, (g * mb) / 255) : 0;
-    uint8_t sb = (b > 0 && mb > 0) ? (uint8_t)max(1, (b * mb) / 255) : 0;
+
+    // Minimum PWM dynamic range floor for DevKit single-LED:
+    // Guarantees sufficient integer steps for secondary color mixing (e.g. amber/orange)
+    // without visible color jumping or die separation.
+    if (mb < 16) mb = 16;
+
+    // Rock-solid integer scaling with rounding:
+    // Eliminates frame-rate-dependent temporal dithering that creates 5-15 Hz frantic strobe flashing.
+    uint8_t sr = (uint8_t)(((uint16_t)r * mb + 127) / 255);
+    uint8_t sg = (uint8_t)(((uint16_t)g * mb + 127) / 255);
+    uint8_t sb = (uint8_t)(((uint16_t)b * mb + 127) / 255);
 
     // Drive both GPIO 48 (DevKitC-1 v1.0) and GPIO 38 (DevKitC-1 v1.1 / clones)
     // using native ESP32-S3 hardware WS2812 pulse stream
@@ -68,7 +96,6 @@ static void setDevKitRgb(uint8_t r, uint8_t g, uint8_t b) {
 #endif
 
     leds[0] = CRGB(sr, sg, sb);
-    FastLED.show();
 }
 #endif
 
@@ -82,6 +109,7 @@ void initLeds() {
     FastLED.addLeds<WS2812B, PIN_LED_DATA, GRB>(leds, NUM_LEDS);
     FastLED.setMaxPowerInVoltsAndMilliamps(5, 1200);
     FastLED.setBrightness(init_brightness);
+    FastLED.setDither(DISABLE_DITHER);
 
     // Immediately clear uninitialized power-on white glow
     setDevKitRgb(0, 0, 0);
@@ -99,6 +127,7 @@ void initLeds() {
     FastLED.addLeds<WS2812B, PIN_LED_DATA, GRB>(leds, NUM_LEDS);
     FastLED.setMaxPowerInVoltsAndMilliamps(5, 1200);
     FastLED.setBrightness(init_brightness);
+    FastLED.setDither(DISABLE_DITHER);
     FastLED.clear();
     FastLED.show();
 
@@ -242,11 +271,13 @@ void getRecentlyActiveRunwaysStr(char* out_buf, size_t buf_len) {
     }
 }
 
-void renderRunwayAnimations() {
+bool renderRunwayAnimations() {
     uint32_t now = millis();
-    if (now - last_frame_time < 20) { // 50 FPS animation loop (silky-smooth breathing & strobes)
-        return;
+    if (now - last_frame_time < 14) { // ~71.4 FPS animation loop (smooth dithering & strobes)
+        return false;
     }
+    float dt = (last_frame_time == 0) ? 0.014f : (float)(now - last_frame_time) / 1000.0f;
+    if (dt > 0.050f) dt = 0.050f; // Clamp to 50ms max to prevent jumps during network latency
     last_frame_time = now;
 
 #if defined(BOARD_MODE_DEVKIT)
@@ -268,30 +299,34 @@ void renderRunwayAnimations() {
         CRGB l_col = CRGB(theme.landing_tail_rgb);
         uint32_t cycle = now % 750;
         if (cycle < 60) {
-            setDevKitRgb(l_col.r, l_col.g, l_col.b); // Flash 1
+            setDevKitRgb(l_col.r, l_col.g, l_col.b); // Flash 1 (Full Strobe)
         } else if (cycle < 130) {
-            setDevKitRgb(l_col.r / 10, l_col.g / 10, l_col.b / 10); // Dip
+            setDevKitRgb(l_col.r / 4, l_col.g / 4, l_col.b / 4); // Strobe Dip
         } else if (cycle < 190) {
-            setDevKitRgb(l_col.r, l_col.g, l_col.b); // Flash 2
+            setDevKitRgb(l_col.r, l_col.g, l_col.b); // Flash 2 (Full Strobe)
         } else {
-            setDevKitRgb(l_col.r / 16, l_col.g / 16, l_col.b / 16); // Low baseline approach glow
+            setDevKitRgb(l_col.r / 6, l_col.g / 6, l_col.b / 6); // Low baseline approach glow
         }
     } else if (active_op == RW_STATE_TAKEOFF) {
         // Aviation Departure Strobe: Crisp theme Takeoff flash every 500ms
         CRGB t_col = CRGB(theme.takeoff_tail_rgb);
         uint32_t cycle = now % 500;
         if (cycle < 80) {
-            setDevKitRgb(t_col.r, t_col.g, t_col.b); // Flash
+            setDevKitRgb(t_col.r, t_col.g, t_col.b); // Flash (Full Strobe)
         } else if (cycle < 160) {
-            setDevKitRgb(t_col.r / 6, t_col.g / 6, t_col.b / 6); // Decay
+            setDevKitRgb(t_col.r / 3, t_col.g / 3, t_col.b / 3); // Decay
         } else {
-            setDevKitRgb(t_col.r / 16, t_col.g / 16, t_col.b / 16); // Low baseline departure glow
+            setDevKitRgb(t_col.r / 6, t_col.g / 6, t_col.b / 6); // Low baseline departure glow
         }
     } else {
         // Idle mode: Silky smooth breathing pulse using theme afterburner/takeoff color
         if (has_had_event) {
             CRGB idle_base = CRGB(theme.takeoff_tail_rgb);
-            float breath = 0.15f + 0.85f * ((sin(now / 600.0f) + 1.0f) * 0.5f); // 0.15 to 1.0
+            // Smooth quadratic sine respiration:
+            // Maps smoothly between 25% and 100% of brightness using quadratic ease
+            // to eliminate flat-bottoming near zero and prevent discrete color quantization.
+            float s = (sin(now / 600.0f) + 1.0f) * 0.5f; // 0.0 to 1.0
+            float breath = 0.25f + 0.75f * (s * s);
             uint8_t r = (uint8_t)(idle_base.r * breath);
             uint8_t g = (uint8_t)(idle_base.g * breath);
             uint8_t b = (uint8_t)(idle_base.b * breath);
@@ -300,7 +335,7 @@ void renderRunwayAnimations() {
             setDevKitRgb(0, 10, 40); // Standby indicator (scales with brightness)
         }
     }
-    return;
+    return true;
 #else
     FastLED.clear();
     const LedThemeConfig& theme = getThemeConfig();
@@ -337,7 +372,7 @@ void renderRunwayAnimations() {
             // Runs ONLY AFTER at least one flight event has occurred since startup
             if (has_had_event && !has_active_flight && seg.was_recently_used) {
                 const float IDLE_TAIL = 0.20f;
-                seg.idle_strobe_norm += 0.003f; // ~10s slow relaxing glide
+                seg.idle_strobe_norm += 0.15f * dt; // ~9.0s slow relaxing glide (frame-rate independent)
                 if (seg.idle_strobe_norm >= 1.35f) {
                     seg.idle_strobe_norm = 0.0f; // Loop with pause
                 }
@@ -357,7 +392,8 @@ void renderRunwayAnimations() {
                             y_color = blend(CRGB(255, 190, 0), CRGB(160, 90, 0), (uint8_t)(f * 255));
                         } else {
                             float f = (u - 0.50f) / 0.50f;
-                            y_color = blend(CRGB(160, 90, 0), CRGB::Black, (uint8_t)(f * 255));
+                            uint8_t cie_f = applyCieGamma((uint8_t)((1.0f - f) * 255.0f));
+                            y_color = blend(CRGB(160, 90, 0), CRGB::Black, 255 - cie_f);
                         }
                         addLedColor(strip_idx, y_color);
                     }
@@ -365,8 +401,8 @@ void renderRunwayAnimations() {
             }
         }
         else {
-            // ACTIVE FLIGHT COMET (Landing or Takeoff at constant 5.0s physical pace)
-            seg.comet_norm += seg.speed_norm;
+            // ACTIVE FLIGHT COMET (Landing or Takeoff at constant 4.5s physical pace, frame-rate independent)
+            seg.comet_norm += 0.30f * dt;
             if (seg.comet_norm >= 1.35f) {
                 seg.comet_norm = 0.0f;
             }
@@ -391,7 +427,8 @@ void renderRunwayAnimations() {
                             led_color = blend(head_col, mid_col, (uint8_t)(f * 255));
                         } else {
                             float f = (u - 0.50f) / 0.50f;
-                            led_color = blend(mid_col, CRGB::Black, (uint8_t)(f * 255));
+                            uint8_t cie_f = applyCieGamma((uint8_t)((1.0f - f) * 255.0f));
+                            led_color = blend(mid_col, CRGB::Black, 255 - cie_f);
                         }
                     } else {
                         // Takeoff Comet: Acceleration Roll Head + Afterburner Flame Tail
@@ -404,7 +441,8 @@ void renderRunwayAnimations() {
                             led_color = blend(head_col, mid_col, (uint8_t)(f * 255));
                         } else {
                             float f = (u - 0.50f) / 0.50f;
-                            led_color = blend(mid_col, CRGB::Black, (uint8_t)(f * 255));
+                            uint8_t cie_f = applyCieGamma((uint8_t)((1.0f - f) * 255.0f));
+                            led_color = blend(mid_col, CRGB::Black, 255 - cie_f);
                         }
                     }
 
@@ -428,6 +466,7 @@ void renderRunwayAnimations() {
     }
 
     FastLED.show();
+    return true;
 #endif
 }
 

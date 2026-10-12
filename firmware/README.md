@@ -125,9 +125,18 @@ ncat 192.168.0.214 23
 
 The console streams live telemetry, including:
 - Wi-Fi RSSI signal strength & free heap memory.
-- Rendering frame rate (~30 FPS).
+- Rendering frame rate (~71.4 FPS).
 - Real-time Theme changes & circadian brightness RAM adjustments.
 - Runway comet transitions and arrival/departure classifications.
+
+---
+
+## Optical Anti-Stepping & Perceptual Gamma (Options B, C, D)
+
+To eliminate discrete stepping jumps at low master brightness levels (such as night circadian floor $B=8$) and ensure physical 5050 RGB dies remain optically blended:
+1. **16-Bit Temporal Error-Diffusion Dithering (Option B):** Accumulates fractional PWM remainders across frames at 71.4 Hz to simulate 16-bit dimming precision without forcing unlit dies to 1 LSB. Full PCB mode enables `FastLED.setDither(BINARY_DITHER)`.
+2. **CIE 1931 Perceptual Lightness Table (Option C):** Maps linear PWM levels to human logarithmic perception ($L \approx Y^{2.8}$) via a 256-byte PROGMEM lookup table. Eliminates flat-bottomed breathing and comet tail "cliffing" into blackness.
+3. **71.4 FPS Engine with Delta-Time Physics (Option D):** Throttles animation updates to $14\text{ ms}$ intervals with $\Delta t$ scaling, guaranteeing physically constant 4.5-second comet rolls regardless of network polling delays or I2C OLED refreshes.
 
 ---
 

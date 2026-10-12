@@ -31,7 +31,7 @@ void setRunwayState(const char* runway_name, const char* action_str, float progr
 void setRunwayIdle(int runway_idx);
 int getRunwayIndex(const char* runway_name);
 void resetAllRunwaysToIdle();
-void renderRunwayAnimations();
+bool renderRunwayAnimations();
 void showConnectionStatusLed(bool connected);
 void getRecentlyActiveRunwaysStr(char* out_buf, size_t buf_len);
 bool hasHadEventOccurred();

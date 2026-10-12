@@ -69,10 +69,13 @@ void setup() {
 }
 
 void loop() {
-    // 1. Continuous LED Animation Rendering (~33 FPS, comet or idle yellow strobe)
-    renderRunwayAnimations();
+    // 1. Continuous LED Animation Rendering (~71.4 FPS, comet or idle yellow strobe)
+    if (renderRunwayAnimations()) {
 #if !defined(BOARD_MODE_BLE)
-    recordFrameRendered();
+        recordFrameRendered();
+#endif
+    }
+#if !defined(BOARD_MODE_BLE)
     handleTelnetServer();
 #endif
 
