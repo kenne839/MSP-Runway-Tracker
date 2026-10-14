@@ -20,7 +20,6 @@ from unittest.mock import patch, MagicMock
 
 from rpi.tracker import TelemetryTracker, TelemetryState
 from rpi.spatial import get_runway_match
-from script import get_active_runway, write_state, HELD_OPERATIONS
 
 
 class TestHighTrafficScenarios(unittest.TestCase):
@@ -29,7 +28,6 @@ class TestHighTrafficScenarios(unittest.TestCase):
         self.tracker = TelemetryTracker(state=self.state)
         # Reset held operations for clean isolation
         self.tracker._held_operations.clear()
-        HELD_OPERATIONS.clear()
 
     # --------------------------------------------------------------------------
     # 1. Parallel Northwest Flow (30R Landing + 30L Takeoff)

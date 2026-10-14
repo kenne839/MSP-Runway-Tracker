@@ -17,6 +17,9 @@ import re
 import threading
 import urllib.request
 import urllib.error
+import logging
+
+logger = logging.getLogger(__name__)
 
 METAR_URL = "https://aviationweather.gov/api/data/metar?ids=KMSP&format=json"
 METAR_POLL_INTERVAL = 300  # 5 minutes
@@ -103,7 +106,7 @@ class MetarService:
                         self._weather = parsed
         except Exception as e:
             # Maintain previous weather cache if network momentarily fails
-            print(f"[{time.strftime('%X')}] METAR fetch notice: {e}")
+            logger.warning("METAR fetch notice: %s", e)
 
     def _parse_observation(self, ob: dict) -> dict:
         temp_c = ob.get("temp")

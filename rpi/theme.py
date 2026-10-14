@@ -7,6 +7,9 @@ persistence in led_theme.json, and in-band injection for the ESP32.
 import os
 import json
 import threading
+import logging
+
+logger = logging.getLogger(__name__)
 
 try:
     from .solar import get_solar_elevation, get_solar_phase, compute_circadian_brightness
@@ -128,7 +131,7 @@ class ThemeManager:
                             theme[k] = sanitize_hex_color(theme[k], DEFAULT_THEME.get(k))
                     return theme
             except Exception as e:
-                print(f"[THEME] Warning: Failed to load {self._file_path}: {e}")
+                logger.warning("Failed to load theme (%s): %s", self._file_path, e)
         return dict(DEFAULT_THEME)
 
     def _save_theme_unlocked(self):
@@ -136,7 +139,7 @@ class ThemeManager:
             with open(self._file_path, "w", encoding="utf-8") as f:
                 json.dump(self._theme, f, indent=2)
         except Exception as e:
-            print(f"[THEME] Warning: Failed to save {self._file_path}: {e}")
+            logger.warning("Failed to save theme (%s): %s", self._file_path, e)
 
     def get_theme(self) -> dict:
         with self._lock:

@@ -11,8 +11,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from rpi.metadata import MetadataResolver
-from script import format_route_string, get_flight_route
+from rpi.metadata import MetadataResolver, format_route_string, get_flight_route
 
 
 class TestRouteResolution(unittest.TestCase):

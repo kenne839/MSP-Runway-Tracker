@@ -47,3 +47,8 @@ led_theme.json
 
 # Persistent local agent context scratchpad
 .agent_context.md
+
+# SQLite runtime databases and journals (auto-seeded from msp_aircraft_db.json)
+*.sqlite3*
+*.db-wal
+*.db-shm

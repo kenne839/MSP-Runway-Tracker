@@ -176,6 +176,7 @@ def find_file(filename):
 AIRLINES_FILE = find_file("airlines.json")
 AIRFRAMES_FILE = find_file("airframes.json")
 AIRCRAFT_DB_FILE = find_file("msp_aircraft_db.json")
+AIRCRAFT_SQLITE_FILE = find_file("msp_aircraft_db.sqlite3")
 ROUTES_CACHE_FILE = find_file("msp_routes_cache.json")
 
 # State output path: prefer Linux RAM disk (/dev/shm) to protect MicroSD card

@@ -19,7 +19,11 @@ import time
 import requests
 import urllib3
 
+import certifi
+import logging
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+logger = logging.getLogger(__name__)
 
 TOKEN_URL = "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token"
 
@@ -142,7 +146,11 @@ class OpenSkyAuth:
                 "client_secret": self.client_secret
             }
             headers = {"Content-Type": "application/x-www-form-urlencoded"}
-            res = requests.post(TOKEN_URL, data=payload, headers=headers, timeout=8, verify=False)
+            try:
+                res = requests.post(TOKEN_URL, data=payload, headers=headers, timeout=8, verify=certifi.where())
+            except requests.exceptions.SSLError:
+                logger.warning("OpenSky TLS verification failed with CA bundle, retrying unverified...")
+                res = requests.post(TOKEN_URL, data=payload, headers=headers, timeout=8, verify=False)
             res.raise_for_status()
             data = res.json()
             access_token = data.get("access_token")
@@ -152,7 +160,7 @@ class OpenSkyAuth:
                 self.token_expires_at = now + expires_in
                 return access_token
         except Exception as e:
-            print(f"[OpenSky Auth Warning] OAuth2 token exchange failed: {e}")
+            logger.warning("OAuth2 token exchange failed: %s", e)
 
         return self.cached_access_token
 

@@ -868,8 +868,10 @@
   "UAL8172": {
     "origin": "IAH",
     "destination": "MSP",
-    "airline": "United Airlines",
-    "updated": 1791086433
+    "airline": "United Air Lines Inc.",
+    "aircraft_type": "B737",
+    "updated": 1791948935,
+    "is_charter": true
   },
   "SWA3175": {
     "origin": "BNA",
@@ -896,7 +898,7 @@
     "destination": "MSP",
     "airline": "MN Airlines D/B/A Sun Country Airlines, Inc.",
     "aircraft_type": "B738",
-    "updated": 1791777683,
+    "updated": 1791948935,
     "is_charter": true
   },
   "UAL667": {

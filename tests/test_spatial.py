@@ -13,8 +13,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from rpi.spatial import get_runway_match, to_meters
-from script import get_active_runway
+from rpi.spatial import get_runway_match, to_meters, get_active_runway
 
 
 class TestSpatialRunwayMatching(unittest.TestCase):

@@ -35,7 +35,11 @@ from .opensky_auth import OpenSkyAuth
 from .theme import ThemeManager
 
 import sys
+import logging
+import certifi
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+logger = logging.getLogger(__name__)
 
 # Ensure UTF-8 console output on Windows
 if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
@@ -197,10 +201,10 @@ class TelemetryState:
 
 class TelemetryTracker:
     """Telemetry collector and spatial reasoning engine."""
-    def __init__(self, state: TelemetryState = None, auth: OpenSkyAuth = None, auth_profile: str = None):
+    def __init__(self, state: TelemetryState = None, auth: OpenSkyAuth = None, auth_profile: str = None, meta: MetadataResolver = None):
         self.state = state if state is not None else TelemetryState()
-        self.meta = MetadataResolver()
         self.auth = auth if auth is not None else OpenSkyAuth(profile=auth_profile)
+        self.meta = meta if meta is not None else MetadataResolver(auth=self.auth)
         self.running = False
         self._thread = None
         
@@ -228,13 +232,13 @@ class TelemetryTracker:
         self.quota_limit = 4000 if self.auth.is_authenticated() else 400
 
         auth_desc = self.auth.get_auth_status_str()
-        print(f"TelemetryTracker initialized. [{auth_desc}] | Poll interval: {OPENSKY_POLL_INTERVAL}s")
+        logger.info("TelemetryTracker initialized. [%s] | Poll interval: %ss", auth_desc, OPENSKY_POLL_INTERVAL)
 
     def start(self):
         self.running = True
         self._thread = threading.Thread(target=self._run_loop, daemon=True, name="TelemetryWorker")
         self._thread.start()
-        print(f"TelemetryTracker background worker started using source: '{DATA_SOURCE}'.")
+        logger.info("TelemetryTracker background worker started using source: '%s'.", DATA_SOURCE)
 
     def stop(self):
         self.running = False
@@ -256,7 +260,7 @@ class TelemetryTracker:
                     self._poll_opensky()
                     time.sleep(self.current_poll_interval)
             except Exception as e:
-                print(f"[Tracker Error] Unhandled exception in poll loop: {e}")
+                logger.error("Unhandled exception in poll loop: %s", e)
                 time.sleep(5.0)
 
     def fetch_opensky(self) -> list[dict]:
@@ -283,11 +287,16 @@ class TelemetryTracker:
             backoff_target = max(OPENSKY_POLL_INTERVAL, 40.0)
             if self.current_poll_interval < backoff_target:
                 pct = (self.daily_requests_count / self.quota_limit) * 100
-                print(f"[{time.strftime('%X')}] ⚠️ Daily OpenSky quota at {pct:.1f}% ({self.daily_requests_count}/{self.quota_limit}). Auto-slowing poll to {backoff_target}s to prevent 429 lockout.")
+                logger.warning("Daily OpenSky quota at %.1f%% (%d/%d). Auto-slowing poll to %ss to prevent 429 lockout.",
+                               pct, self.daily_requests_count, self.quota_limit, backoff_target)
                 self.current_poll_interval = backoff_target
 
         try:
-            res = requests.get(OPENSKY_URL, params=MSP_BBOX, headers=headers, auth=basic_auth, timeout=10, verify=False)
+            try:
+                res = requests.get(OPENSKY_URL, params=MSP_BBOX, headers=headers, auth=basic_auth, timeout=10, verify=certifi.where())
+            except requests.exceptions.SSLError:
+                res = requests.get(OPENSKY_URL, params=MSP_BBOX, headers=headers, auth=basic_auth, timeout=10, verify=False)
+
             if res.status_code == 429:
                 retry_sec = 300
                 try:
@@ -296,9 +305,9 @@ class TelemetryTracker:
                     pass
                 self.opensky_lockout_until = time.time() + retry_sec
                 hours = retry_sec / 3600.0
-                print(f"[{time.strftime('%X')}] ⚠️ OpenSky rate limit reached (HTTP 429). Retry in {hours:.1f}h ({retry_sec}s).")
+                logger.warning("OpenSky rate limit reached (HTTP 429). Retry in %.1fh (%ss).", hours, retry_sec)
                 if not self.auth.is_authenticated():
-                    print(f"[{time.strftime('%X')}] 💡 TIP: Add OpenSky credentials in .env or credentials.json to increase daily quota from 400 to 4,000 requests!")
+                    logger.info("TIP: Add OpenSky credentials in .env or credentials.json to increase daily quota from 400 to 4,000 requests!")
                 self.last_fetch_success = False
                 self.current_poll_interval = min(float(retry_sec), 60.0)
                 return []
@@ -320,7 +329,7 @@ class TelemetryTracker:
                 })
 
             if not self.internet_online:
-                print(f"[{time.strftime('%X')}] Internet connectivity restored. Resumed OpenSky live telemetry.")
+                logger.info("Internet connectivity restored. Resumed OpenSky live telemetry.")
 
             self.internet_online = True
             self.last_fetch_success = True
@@ -342,14 +351,14 @@ class TelemetryTracker:
                     pass
                 self.opensky_lockout_until = time.time() + retry_sec
                 hours = retry_sec / 3600.0
-                print(f"[{time.strftime('%X')}] ⚠️ OpenSky rate limit reached (HTTP 429). Retry in {hours:.1f}h ({retry_sec}s).")
+                logger.warning("OpenSky rate limit reached (HTTP 429). Retry in %.1fh (%ss).", hours, retry_sec)
                 if not self.auth.is_authenticated():
-                    print(f"[{time.strftime('%X')}] 💡 TIP: Add OpenSky credentials in .env or credentials.json to increase daily quota to 4,000 requests.")
+                    logger.info("TIP: Add OpenSky credentials in .env or credentials.json to increase daily quota to 4,000 requests.")
                 self.current_poll_interval = min(float(retry_sec), 60.0)
                 return []
 
             if self.internet_online:
-                print(f"[{time.strftime('%X')}] OpenSky request failed ({e}). Entering backoff retry mode...")
+                logger.warning("OpenSky request failed (%s). Entering backoff retry mode...", e)
                 self.internet_online = False
             self.current_poll_interval = min(60.0, OPENSKY_POLL_INTERVAL * (1.5 ** min(self.consecutive_failures, 4)))
             return []
@@ -357,7 +366,7 @@ class TelemetryTracker:
             self.consecutive_failures += 1
             self.last_fetch_success = False
             if self.internet_online:
-                print(f"[{time.strftime('%X')}] Internet connection lost ({e}). Entering backoff retry mode...")
+                logger.warning("Internet connection lost (%s). Entering backoff retry mode...", e)
                 self.internet_online = False
 
             # Exponential backoff capped at 60 seconds to avoid hammering network or syslog
@@ -397,7 +406,7 @@ class TelemetryTracker:
             res.raise_for_status()
             data = res.json()
         except Exception as e:
-            print(f"[{time.strftime('%X')}] Local dump1090 request failed: {e}")
+            logger.warning("Local dump1090 request failed: %s", e)
             return
 
         aircraft_raw = data.get("aircraft", [])
@@ -482,11 +491,11 @@ class TelemetryTracker:
                 # Level transit in corridor is skipped
                 continue
 
-            # 4. Metadata Resolution
+            # 4. Metadata Resolution (uses async queue for instant poll loop latency)
             raw_callsign = ac.get("callsign", "UNKNOWN")
             airline_name, flight_num, flight_label = self.meta.resolve_airline(raw_callsign)
-            type_code, aircraft_type = self.meta.resolve_airframe(ac.get("icao24"), callsign=raw_callsign)
-            route = self.meta.resolve_route(raw_callsign, action)
+            type_code, aircraft_type = self.meta.resolve_airframe(ac.get("icao24"), callsign=raw_callsign, async_lookup=True)
+            route = self.meta.resolve_route(raw_callsign, action, async_lookup=True)
 
             # Secondary backfill: if route resolution discovered aircraft_type from FlightAware, adopt it!
             if (type_code == "UNKNOWN" or aircraft_type == "UNKNOWN") and raw_callsign:
@@ -531,8 +540,9 @@ class TelemetryTracker:
             }
             active_operations.append(op)
 
-            print(f"  ✈ MATCH! [{aircraft_type}] {flight_label} | {action} on {rw_match['runway']} | "
-                  f"Prog: {int(rw_match['t_progress']*100)}% | Spd: {speed_kts}kts, Alt: {alt_ft}ft")
+            logger.info("  ✈ MATCH! [%s] %s | %s on %s | Prog: %d%% | Spd: %dkts, Alt: %dft",
+                        aircraft_type, flight_label, action, rw_match['runway'],
+                        int(rw_match['t_progress'] * 100), speed_kts, alt_ft)
 
         # Clean up expired held operations, and preserve unexpired active operations
         # to bridge telemetry drops, rollout deceleration, and OpenSky polling jitter.

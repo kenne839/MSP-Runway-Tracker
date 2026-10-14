@@ -23,6 +23,9 @@ import re
 import threading
 import urllib.request
 import urllib.error
+import logging
+
+logger = logging.getLogger(__name__)
 
 DATIS_URL = "https://atis.info/api/kmsp"
 DATIS_POLL_INTERVAL = 600  # 10 minutes
@@ -76,7 +79,7 @@ class DatisService:
                         self._datis = parsed
         except Exception as e:
             # Completely silent / graceful degradation: D-ATIS failure must never disrupt core operations
-            pass
+            logger.debug("D-ATIS fetch notice: %s", e)
 
     def _parse_datis_payload(self, data: list) -> dict:
         arr_code = None

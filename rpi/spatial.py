@@ -129,3 +129,13 @@ def get_runway_match(lat: float, lon: float, heading: float, vertical_rate: floa
     # Sort candidates by smallest cross-track offset first, then by smallest heading delta.
     candidates.sort(key=lambda c: (c["cross_track_m"], c["heading_delta"]))
     return candidates[0]
+
+
+def get_active_runway(lat: float, lon: float, heading: float, vertical_rate: float = None) -> str | None:
+    """
+    Determines if an aircraft is operating within an active runway corridor.
+    Returns the active runway designator (e.g., '12L', '30R') or None if no match.
+    """
+    match = get_runway_match(lat, lon, heading, vertical_rate=vertical_rate)
+    return match["runway"] if match else None
+

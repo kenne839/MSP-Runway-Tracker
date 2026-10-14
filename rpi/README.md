@@ -25,21 +25,26 @@ The Raspberry Pi service is responsible for:
 ```text
 rpi/
 ├── config.py              # Configuration thresholds, coordinates, URLs, ports
+├── models.py              # Canonical dataclasses with slots (FlightOperation, etc.)
 ├── spatial.py             # Tangent plane projection and runway geometry
-├── metadata.py            # Airlines, airframes, multi-tier routes, transponder resolver
+├── metadata.py            # Thread-safe SQLite/Async airframe and route resolver
 ├── tracker.py             # Polling engine, kinematic filter, thread-safe state store
-├── server.py              # Multi-threaded HTTP server & web dashboard
+├── server.py              # Multi-threaded HTTP server (API v1 & legacy paths)
 ├── solar.py               # NOAA solar elevation ephemeris & circadian smoothstep curve
 ├── theme.py               # Thread-safe LED theme manager, presets, and persistence
 ├── theme_cli.py           # Command-line theme and solar-sync configuration tool
-├── main.py                # Service launcher entry point
-├── requirements.txt       # Python dependencies
+├── main.py                # Service launcher entry point with DI & structured logging
+├── static/
+│   └── dashboard.html     # Real-time web telemetry dashboard
+├── requirements.txt       # Python dependencies (requests, certifi, urllib3)
 └── service/
     └── msp-tracker.service # systemd auto-start configuration
 
+msp_aircraft_db.sqlite3    # High-speed indexed SQLite airframe database (WAL mode)
+msp_aircraft_db.json       # Seed Mode S hex transponder registry (~480,000 aircraft)
 msp_routes_cache.json      # Persistent local cache of published flight itineraries
-msp_aircraft_db.json       # Persistent local Mode S hex -> airframe database
 ```
+
 
 ---
 
