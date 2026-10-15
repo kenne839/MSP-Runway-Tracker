@@ -29,24 +29,31 @@ android {
             )
         }
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
+
     buildFeatures {
         compose = true
     }
+
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.8"
     }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+}
+
+// Java Toolchain configuration: Enforces JDK 17 for both Java and Kotlin compilations
+// Eliminates the 'Android Gradle Plugin requires Java 17 or higher' and deprecated 'kotlinOptions' warnings
+kotlin {
+    jvmToolchain(17)
 }
 
 dependencies {
