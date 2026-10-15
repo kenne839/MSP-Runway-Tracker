@@ -170,29 +170,20 @@ bool tickReplay(uint32_t current_millis, DisplayTelemetryData& out_telemetry) {
                 ev.is_active = true;
                 ev.active_until_millis = current_millis + ev.duration_ms;
 
-                Serial.printf("[REPLAY] ✈ Firing %s on RW %s: %s (%s)\n",
-                              ev.action, ev.runway, ev.flight_label, ev.aircraft_type);
+                Serial.printf("[REPLAY] [FLIGHT] Firing %s on RW %s: %s (%s) [dur=%ums]\n",
+                              ev.action, ev.runway, ev.flight_label, ev.aircraft_type, ev.duration_ms);
+                Serial.flush();
 
                 setRunwayState(ev.runway, ev.action, 0.0f);
-
-                // Add to OLED multi-flight banner
-                if (out_telemetry.flight_count < MAX_TRACKED_FLIGHTS) {
-                    FlightEvent& f = out_telemetry.flights[out_telemetry.flight_count];
-                    strncpy(f.runway, ev.runway, sizeof(f.runway) - 1);
-                    strncpy(f.action, ev.action, sizeof(f.action) - 1);
-                    strncpy(f.flight_label, ev.flight_label, sizeof(f.flight_label) - 1);
-                    strncpy(f.aircraft_type, ev.aircraft_type, sizeof(f.aircraft_type) - 1);
-                    strncpy(f.route, ev.route, sizeof(f.route) - 1);
-                    out_telemetry.flight_count++;
-                }
-
-                out_telemetry.has_had_event = true;
+                wakeDisplay(); // Instantly wake OLED display when an operation fires
                 state_changed = true;
             }
 
             // 2. Check for completion of active animations
             if (ev.is_active && (current_millis >= ev.active_until_millis)) {
                 ev.is_active = false;
+                Serial.printf("[REPLAY] ✓ Completed %s on RW %s: %s\n", ev.action, ev.runway, ev.flight_label);
+                Serial.flush();
                 int rw_idx = getRunwayIndex(ev.runway);
                 if (rw_idx >= 0) {
                     // Only set runway idle if no other overlapping operation is running on it
@@ -209,6 +200,26 @@ bool tickReplay(uint32_t current_millis, DisplayTelemetryData& out_telemetry) {
                 }
                 state_changed = true;
             }
+        }
+
+        // Dynamically rebuild the active flights banner from all currently active operations
+        if (state_changed) {
+            uint8_t active_count = 0;
+            for (uint8_t j = 0; j < s_event_count; j++) {
+                if (s_events[j].is_active && active_count < MAX_TRACKED_FLIGHTS) {
+                    FlightEvent& f = out_telemetry.flights[active_count];
+                    strncpy(f.runway, s_events[j].runway, sizeof(f.runway) - 1);
+                    strncpy(f.action, s_events[j].action, sizeof(f.action) - 1);
+                    strncpy(f.flight_label, s_events[j].flight_label, sizeof(f.flight_label) - 1);
+                    strncpy(f.aircraft_type, s_events[j].aircraft_type, sizeof(f.aircraft_type) - 1);
+                    strncpy(f.route, s_events[j].route, sizeof(f.route) - 1);
+                    active_count++;
+                }
+            }
+            out_telemetry.flight_count = active_count;
+            out_telemetry.has_had_event = true;
+            out_telemetry.link_online = true;
+            out_telemetry.last_rx_millis = current_millis;
         }
     }
 

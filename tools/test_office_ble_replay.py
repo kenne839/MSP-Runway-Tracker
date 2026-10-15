@@ -54,7 +54,9 @@ async def transmit_ble(payload_str):
             chunk = payload_bytes[i:i + chunk_size]
             await client.write_gatt_char(NUS_RX_UUID, chunk, response=True)
             print(f"  -> Sent {len(chunk)} bytes (offset {i}/{len(payload_bytes)})")
-        print("[BLE] Finished transmission! ESP32 replay engine is now playing back operations.")
+        print("\n[BLE] Finished transmission! ESP32 replay engine is now playing back operations.")
+        print("[TIP] For immediate 2-second playback with live UART logs, run:")
+        print("      python tools/test_office_replay_immediate.py --demo")
         return True
 
 def main():

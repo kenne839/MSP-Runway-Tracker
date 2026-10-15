@@ -265,7 +265,11 @@ void renderDisplayLoop() {
     }
 
     // Synchronized link loss timeout: if offline > LINK_LOSS_IDLE_TIMEOUT_MS (45s), declare link lost
+#if defined(BOARD_MODE_BLE)
+    bool is_stale = has_received_initial_data && !current_data.link_online && (now - last_telemetry_rx_time > LINK_LOSS_IDLE_TIMEOUT_MS);
+#else
     bool is_stale = has_received_initial_data && (now - last_telemetry_rx_time > LINK_LOSS_IDLE_TIMEOUT_MS);
+#endif
 
     if (is_stale) {
         // Expire active flights so old landing/takeoff events are not displayed

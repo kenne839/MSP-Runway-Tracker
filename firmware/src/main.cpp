@@ -6,6 +6,7 @@
 
 #if defined(BOARD_MODE_BLE)
 #include "ble_client.h"
+#include "replay_manager.h"
 #else
 #include "network_client.h"
 #include "telnet_server.h"
@@ -93,6 +94,19 @@ void loop() {
 #endif
 
     // 3. Link loss watchdog: If link is lost for >45s, remove active operations and return to IDLE
+#if defined(BOARD_MODE_BLE)
+    // In BLE Replay mode, the phone connects ephemerally (pushes 30m batch and disconnects).
+    // As long as a replay batch is active in RAM, the device is fully functional and NOT in link loss.
+    if (!isReplayBatchActive() && telemetry_data.last_rx_millis > 0 && (millis() - telemetry_data.last_rx_millis > LINK_LOSS_IDLE_TIMEOUT_MS)) {
+        if (telemetry_data.flight_count > 0 || telemetry_data.link_online) {
+            Serial.println(F("[Watchdog] BLE replay idle & no link > 45s. Transitioning to Standby."));
+            telemetry_data.flight_count = 0;
+            telemetry_data.link_online = false;
+            resetAllRunwaysToIdle();
+            updateTelemetryData(telemetry_data);
+        }
+    }
+#else
     if (telemetry_data.last_rx_millis > 0 && (millis() - telemetry_data.last_rx_millis > LINK_LOSS_IDLE_TIMEOUT_MS)) {
         if (telemetry_data.flight_count > 0 || telemetry_data.link_online) {
             Serial.println(F("[Watchdog] Telemetry link offline > 45s. Removing active runway events to IDLE."));
@@ -102,6 +116,7 @@ void loop() {
             updateTelemetryData(telemetry_data);
         }
     }
+#endif
 
     // 4. Render OLED display (handles 3-second multi-flight cycling and idle state)
     renderDisplayLoop();
