@@ -5,11 +5,12 @@ and an embedded real-time web dashboard for manual monitoring.
 
 import os
 import json
+import gzip
 import logging
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 from .tracker import TelemetryState
-from .config import SERVER_HOST, SERVER_PORT
+from .config import SERVER_HOST, SERVER_PORT, OFFICE_API_TOKEN
 from .theme import THEME_PRESETS
 
 logger = logging.getLogger(__name__)
@@ -42,7 +43,7 @@ def make_handler(state: TelemetryState):
         def _send_cors_headers(self):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-            self.send_header("Access-Control-Allow-Headers", "Content-Type, X-ESP32-RSSI, X-ESP32-Heap, X-ESP32-Uptime, X-ESP32-FPS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-KMSP-Token, X-ESP32-RSSI, X-ESP32-Heap, X-ESP32-Uptime, X-ESP32-FPS")
 
         def do_OPTIONS(self):
             self.send_response(204)
@@ -102,6 +103,53 @@ def make_handler(state: TelemetryState):
                 body = json.dumps(health).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
+                self._send_cors_headers()
+                self.end_headers()
+                self.wfile.write(body)
+
+            elif path in ("/api/office_replay_batch", "/api/v1/office_replay_batch"):
+                # Token authentication check
+                if OFFICE_API_TOKEN:
+                    auth_token = self.headers.get("X-KMSP-Token") or ""
+                    if not auth_token:
+                        auth_header = self.headers.get("Authorization", "")
+                        if auth_header.startswith("Bearer "):
+                            auth_token = auth_header[7:].strip()
+                    if auth_token != OFFICE_API_TOKEN:
+                        self.send_response(401)
+                        self.send_header("Content-Type", "application/json")
+                        self._send_cors_headers()
+                        self.end_headers()
+                        self.wfile.write(b'{"error": "Unauthorized: invalid or missing X-KMSP-Token"}')
+                        return
+
+                # Parse query parameters
+                query_params = parse_qs(parsed.query)
+                window_minutes = 30
+                if "window_minutes" in query_params:
+                    try:
+                        window_minutes = int(query_params["window_minutes"][0])
+                    except (ValueError, TypeError):
+                        window_minutes = 30
+
+                batch_dict = state.get_replay_batch(window_minutes=window_minutes)
+                raw_body = json.dumps(batch_dict, indent=2).encode("utf-8")
+
+                # Wire compression: check Accept-Encoding
+                accept_encoding = self.headers.get("Accept-Encoding", "")
+                use_gzip = "gzip" in accept_encoding.lower()
+
+                if use_gzip:
+                    body = gzip.compress(raw_body)
+                else:
+                    body = raw_body
+
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                if use_gzip:
+                    self.send_header("Content-Encoding", "gzip")
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                self.send_header("Content-Length", str(len(body)))
                 self._send_cors_headers()
                 self.end_headers()
                 self.wfile.write(body)

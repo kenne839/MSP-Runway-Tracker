@@ -178,9 +178,14 @@ AIRFRAMES_FILE = find_file("airframes.json")
 AIRCRAFT_DB_FILE = find_file("msp_aircraft_db.json")
 AIRCRAFT_SQLITE_FILE = find_file("msp_aircraft_db.sqlite3")
 ROUTES_CACHE_FILE = find_file("msp_routes_cache.json")
+REPLAY_QUEUE_FILE = find_file("msp_replay_queue.json")
+
+# Office Mode Security: optional pre-shared bearer token for remote replay ingress
+OFFICE_API_TOKEN = os.environ.get("KMSP_OFFICE_API_TOKEN", "") or os.environ.get("MSP_OFFICE_API_TOKEN", "")
 
 # State output path: prefer Linux RAM disk (/dev/shm) to protect MicroSD card
 if os.path.isdir("/dev/shm") and os.access("/dev/shm", os.W_OK):
     STATE_FILE = "/dev/shm/msp_runway_state.json"
 else:
     STATE_FILE = os.path.join(RPI_DIR, "runway_state.json")
+

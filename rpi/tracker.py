@@ -25,7 +25,8 @@ from .config import (
     DUMP1090_POLL_INTERVAL,
     DATA_SOURCE,
     STATE_FILE,
-    RUNWAYS
+    RUNWAYS,
+    REPLAY_QUEUE_FILE
 )
 from .spatial import get_runway_match
 from .metadata import MetadataResolver
@@ -33,6 +34,7 @@ from .weather import get_current_weather
 from .atis import get_current_datis
 from .opensky_auth import OpenSkyAuth
 from .theme import ThemeManager
+from .replay_queue import RollingReplayQueue
 
 import sys
 import logging
@@ -64,6 +66,7 @@ class TelemetryState:
         self._lock = threading.Lock()
         self._esp32_heartbeat = None
         self.theme_manager = ThemeManager()
+        self.replay_queue = RollingReplayQueue(persistence_file=REPLAY_QUEUE_FILE)
         self._state = {
             "timestamp": int(time.time()),
             "iso_time": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -188,6 +191,13 @@ class TelemetryState:
         with self._lock:
             self._state = new_state
 
+        # Enqueue active runway operations into rolling replay queue
+        for op in active_ops:
+            try:
+                self.replay_queue.record_operation(op, timestamp=now_ts)
+            except Exception as e:
+                logger.debug("Replay queue recording error: %s", e)
+
         # Optionally write atomic snapshot to RAM disk (/dev/shm)
         try:
             temp_file = f"{STATE_FILE}.tmp"
@@ -197,6 +207,17 @@ class TelemetryState:
             os.replace(temp_file, STATE_FILE)
         except Exception:
             pass
+
+    def get_replay_batch(self, window_minutes: int = 30) -> dict:
+        """Returns structured 30-minute replay batch for office mode."""
+        snapshot = self.get_snapshot()
+        return self.replay_queue.get_batch(
+            window_minutes=window_minutes,
+            weather=snapshot.get("weather"),
+            runway_roles=snapshot.get("runway_roles"),
+            theme=snapshot.get("theme"),
+            network=snapshot.get("network")
+        )
 
 
 class TelemetryTracker:
