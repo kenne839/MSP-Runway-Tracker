@@ -1,14 +1,19 @@
 package com.kmsp.tracker.ble
 
 import android.annotation.SuppressLint
-import android.bluetooth.*
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothGatt
+import android.bluetooth.BluetoothGattCallback
+import android.bluetooth.BluetoothGattCharacteristic
+import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothProfile
+import android.bluetooth.BluetoothStatusCodes
 import android.bluetooth.le.ScanCallback
-import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.os.Build
-import android.os.ParcelUuid
 import android.util.Log
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
@@ -24,31 +29,49 @@ val NUS_TX_UUID: UUID = UUID.fromString("6E400003-B5A3-F393-E0A9-E50E24DCCA9E")
 class BleNusClient(private val context: Context) {
 
     private val bluetoothAdapter: BluetoothAdapter? by lazy {
-        val manager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
-        manager.adapter
+        val manager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
+        manager?.adapter
     }
 
     @SuppressLint("MissingPermission")
-    fun transmitBatchPayload(payloadJson: String, timeoutSec: Long = 10): Result<Int> {
+    fun transmitBatchPayload(
+        payloadJson: String,
+        timeoutSec: Long = 10,
+        onProgress: ((String) -> Unit)? = null
+    ): Result<Int> {
         val adapter = bluetoothAdapter
         if (adapter == null || !adapter.isEnabled) {
-            return Result.failure(IllegalStateException("Bluetooth is disabled or unavailable"))
+            return Result.failure(IllegalStateException("Bluetooth is disabled or unavailable on this device"))
         }
 
         val scanner = adapter.bluetoothLeScanner
             ?: return Result.failure(IllegalStateException("BLE Scanner unavailable"))
 
         Log.i(TAG, "Scanning for KMSP-Runway-Office peripheral...")
+        onProgress?.invoke("Scanning for KMSP-Runway-Office BLE peripheral...")
+
         var targetDevice: BluetoothDevice? = null
         val scanLatch = CountDownLatch(1)
 
         val scanCallback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult?) {
                 val device = result?.device ?: return
-                val name = result.scanRecord?.deviceName ?: device.name
-                if (name != null && name.contains("KMSP-Runway", ignoreCase = true)) {
-                    Log.i(TAG, "Found target peripheral: $name (${device.address}, RSSI: ${result.rssi})")
+                val record = result.scanRecord
+                val name = record?.deviceName ?: device.name
+                val serviceUuids = record?.serviceUuids
+                val hasNusUuid = serviceUuids?.any { it.uuid == NUS_SERVICE_UUID } == true
+                val matchesName = name != null && (name.contains("KMSP-Runway", ignoreCase = true) || name.contains("Office", ignoreCase = true))
+
+                Log.d(TAG, "Scanned BLE device: name='$name', addr=${device.address}, rssi=${result.rssi}")
+
+                if (matchesName || hasNusUuid) {
+                    Log.i(TAG, "Found target peripheral: '$name' (${device.address}, RSSI: ${result.rssi})")
                     targetDevice = device
+                    try {
+                        scanner.stopScan(this)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Error stopping scan in callback: ${e.message}")
+                    }
                     scanLatch.countDown()
                 }
             }
@@ -59,54 +82,78 @@ class BleNusClient(private val context: Context) {
             }
         }
 
-        val filter = ScanFilter.Builder()
-            .setServiceUuid(ParcelUuid(NUS_SERVICE_UUID))
-            .build()
         val settings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .setReportDelay(0)
             .build()
 
-        // 1. Scan with 4-second discovery timeout
+        // 1. Scan with up to 8-second discovery timeout (pass null filters for universal OEM compatibility)
         try {
-            scanner.startScan(listOf(filter), settings, scanCallback)
-            scanLatch.await(4, TimeUnit.SECONDS)
+            scanner.startScan(null, settings, scanCallback)
+            scanLatch.await(8, TimeUnit.SECONDS)
+        } catch (e: SecurityException) {
+            return Result.failure(IllegalStateException("Bluetooth scan permission missing: ${e.message}"))
+        } catch (e: Exception) {
+            Log.w(TAG, "Exception during startScan: ${e.message}")
         } finally {
-            // ALWAYS explicitly stop scanning before connecting to eliminate GATT_ERROR 133
-            scanner.stopScan(scanCallback)
+            try {
+                scanner.stopScan(scanCallback)
+            } catch (e: Exception) {
+                // Ignore if already stopped
+            }
         }
 
-        val device = targetDevice ?: return Result.failure(IllegalStateException("Device KMSP-Runway-Office not found"))
+        val device = targetDevice ?: return Result.failure(IllegalStateException("Peripheral 'KMSP-Runway-Office' not found. Ensure ESP32 desk board is powered on nearby."))
+
+        onProgress?.invoke("Found ${device.name ?: "ESP32"} (${device.address})! Connecting...")
 
         // 2. Connect GATT directly (autoConnect = false, TRANSPORT_LE)
         val connectLatch = CountDownLatch(1)
         val mtuLatch = CountDownLatch(1)
-        val writeAckLatch = CountDownLatch(1)
+        val servicesDiscoveredLatch = CountDownLatch(1)
         val writeSuccess = AtomicBoolean(false)
+        var currentWriteLatch: CountDownLatch? = null
         var negotiatedMtu = 23
         var activeGatt: BluetoothGatt? = null
         var rxCharacteristic: BluetoothGattCharacteristic? = null
+        var isConnected = false
 
         val gattCallback = object : BluetoothGattCallback() {
             override fun onConnectionStateChange(gatt: BluetoothGatt?, status: Int, newState: Int) {
                 Log.d(TAG, "GATT state change: status=$status, newState=$newState")
                 if (newState == BluetoothProfile.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS) {
+                    isConnected = true
+                    activeGatt = gatt
                     Log.i(TAG, "Connected to GATT server. Requesting CONNECTION_PRIORITY_HIGH...")
                     gatt?.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
-                    gatt?.requestMtu(512)
-                    activeGatt = gatt
+
+                    // Request MTU 512 for fast batch streaming
+                    val mtuReq = gatt?.requestMtu(512) ?: false
+                    if (!mtuReq) {
+                        Log.w(TAG, "requestMtu returned false, discovering services directly")
+                        gatt?.discoverServices()
+                    }
                     connectLatch.countDown()
                 } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                    Log.i(TAG, "GATT disconnected cleanly.")
-                    gatt?.close()
+                    Log.i(TAG, "GATT disconnected cleanly (status=$status).")
+                    isConnected = false
                     connectLatch.countDown()
                     mtuLatch.countDown()
-                    writeAckLatch.countDown()
+                    servicesDiscoveredLatch.countDown()
+                    currentWriteLatch?.countDown()
+                } else if (status != BluetoothGatt.GATT_SUCCESS) {
+                    Log.w(TAG, "GATT error status=$status, newState=$newState")
+                    connectLatch.countDown()
+                    mtuLatch.countDown()
+                    servicesDiscoveredLatch.countDown()
+                    currentWriteLatch?.countDown()
                 }
             }
 
             override fun onMtuChanged(gatt: BluetoothGatt?, mtu: Int, status: Int) {
                 Log.i(TAG, "MTU negotiated: $mtu (status: $status)")
                 negotiatedMtu = if (status == BluetoothGatt.GATT_SUCCESS) mtu else 23
+                mtuLatch.countDown()
                 gatt?.discoverServices()
             }
 
@@ -115,18 +162,24 @@ class BleNusClient(private val context: Context) {
                     val service = gatt?.getService(NUS_SERVICE_UUID)
                     rxCharacteristic = service?.getCharacteristic(NUS_RX_UUID)
                     Log.i(TAG, "Services discovered. RX characteristic ready: ${rxCharacteristic != null}")
+                } else {
+                    Log.w(TAG, "Services discovery failed with status $status")
                 }
-                mtuLatch.countDown()
+                servicesDiscoveredLatch.countDown()
             }
 
-            override fun onCharacteristicWrite(gatt: BluetoothGatt?, characteristic: BluetoothGattCharacteristic?, status: Int) {
+            override fun onCharacteristicWrite(
+                gatt: BluetoothGatt?,
+                characteristic: BluetoothGattCharacteristic?,
+                status: Int
+            ) {
                 if (status == BluetoothGatt.GATT_SUCCESS) {
                     writeSuccess.set(true)
                 } else {
                     Log.w(TAG, "Write failed with status $status")
                     writeSuccess.set(false)
                 }
-                writeAckLatch.countDown()
+                currentWriteLatch?.countDown()
             }
         }
 
@@ -134,32 +187,41 @@ class BleNusClient(private val context: Context) {
             val gatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
             activeGatt = gatt
 
-            if (!connectLatch.await(5, TimeUnit.SECONDS) || rxCharacteristic == null) {
-                if (!mtuLatch.await(3, TimeUnit.SECONDS)) {
-                    return Result.failure(IllegalStateException("GATT connection or service discovery timed out"))
-                }
+            if (!connectLatch.await(7, TimeUnit.SECONDS) || !isConnected) {
+                return Result.failure(IllegalStateException("GATT connection failed or timed out (7s)"))
+            }
+
+            onProgress?.invoke("Connected! Negotiating MTU & discovering services...")
+            // Wait up to 2 seconds for MTU negotiation
+            mtuLatch.await(2, TimeUnit.SECONDS)
+
+            if (!servicesDiscoveredLatch.await(5, TimeUnit.SECONDS) || rxCharacteristic == null) {
+                return Result.failure(IllegalStateException("GATT service discovery timed out or NUS RX characteristic missing"))
             }
 
             val charac = rxCharacteristic ?: return Result.failure(IllegalStateException("NUS RX Characteristic not found"))
 
             // 3. Transmit using Stop-and-Wait Write-With-Response
             val fullPayload = (payloadJson.trimEnd() + "\n").toByteArray(Charsets.UTF_8)
-            val chunkSize = (negotiatedMtu - 3).coerceIn(20, 509)
+            // Use 240-byte chunks matching desktop test harness for optimal throughput without buffer congestion
+            val chunkSize = minOf((negotiatedMtu - 3).coerceAtLeast(20), 240)
             var bytesSent = 0
+            val totalBytes = fullPayload.size
 
-            Log.i(TAG, "Streaming ${fullPayload.size} bytes in chunks of $chunkSize...")
+            Log.i(TAG, "Streaming $totalBytes bytes in chunks of $chunkSize...")
+            onProgress?.invoke("Streaming $totalBytes bytes to desk board...")
 
             for (i in fullPayload.indices step chunkSize) {
-                val end = minOf(i + chunkSize, fullPayload.size)
+                val end = minOf(i + chunkSize, totalBytes)
                 val chunk = fullPayload.copyOfRange(i, end)
 
                 writeSuccess.set(false)
                 val chunkLatch = CountDownLatch(1)
+                currentWriteLatch = chunkLatch
 
-                // Set write type to DEFAULT (Write with response for flow control)
                 charac.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    gatt.writeCharacteristic(charac, chunk, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
+                val initiated = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    gatt.writeCharacteristic(charac, chunk, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) == BluetoothStatusCodes.SUCCESS
                 } else {
                     @Suppress("DEPRECATION")
                     charac.value = chunk
@@ -167,21 +229,43 @@ class BleNusClient(private val context: Context) {
                     gatt.writeCharacteristic(charac)
                 }
 
-                // Wait up to 1500ms for write ACK
-                if (!writeAckLatch.await(1500, TimeUnit.MILLISECONDS)) {
-                    Log.w(TAG, "Write acknowledgment timed out at offset $i")
+                if (!initiated) {
+                    Log.w(TAG, "Failed to initiate write for chunk at offset $i")
+                    return Result.failure(IllegalStateException("GATT write failed to initiate at offset $i"))
                 }
+
+                if (!chunkLatch.await(2000, TimeUnit.MILLISECONDS)) {
+                    Log.w(TAG, "Write acknowledgment timed out at offset $i")
+                    return Result.failure(IllegalStateException("GATT write ACK timed out at offset $i"))
+                }
+
+                if (!writeSuccess.get()) {
+                    Log.w(TAG, "GATT write rejected with error at offset $i")
+                    return Result.failure(IllegalStateException("GATT write rejected by peripheral at offset $i"))
+                }
+
                 bytesSent += chunk.size
+                onProgress?.invoke("Sent $bytesSent / $totalBytes bytes")
             }
 
             Log.i(TAG, "Transmission complete: $bytesSent bytes sent.")
             return Result.success(bytesSent)
 
+        } catch (e: SecurityException) {
+            return Result.failure(IllegalStateException("Bluetooth permission error during transfer: ${e.message}"))
+        } catch (e: Exception) {
+            return Result.failure(e)
         } finally {
             // 4. Deterministic teardown: disconnect and close immediately
-            activeGatt?.disconnect()
-            activeGatt?.close()
+            try {
+                activeGatt?.disconnect()
+                Thread.sleep(150)
+            } catch (e: Exception) {
+                // ignore
+            } finally {
+                activeGatt?.close()
+                activeGatt = null
+            }
         }
     }
 }
-

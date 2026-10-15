@@ -71,7 +71,7 @@ class OfficeProdPolicy(
             Log.w(TAG, "Wi-Fi scan failed or throttled: ${e.message}")
         }
 
-        // If Wi-Fi scan is throttled by Android OS (4 scans / 2 min), permit sync as fallback if within work hours
+        // Fallback if within work hours
         Log.i(TAG, "OfficeProdPolicy: Permitting execution on work-hours fallback.")
         return true
     }
@@ -83,11 +83,26 @@ object PresenceEngine {
     private var currentMode: SyncMode = SyncMode.HOME_TEST
     private var activePolicy: PresencePolicy = HomeTestPolicy()
 
-    fun setMode(mode: SyncMode) {
+    fun init(context: Context) {
+        val prefs = context.getSharedPreferences("kmsp_prefs", Context.MODE_PRIVATE)
+        val modeStr = prefs.getString("sync_mode", SyncMode.HOME_TEST.name)
+        val mode = try {
+            SyncMode.valueOf(modeStr ?: SyncMode.HOME_TEST.name)
+        } catch (e: Exception) {
+            SyncMode.HOME_TEST
+        }
+        setMode(mode, save = false, context = context)
+    }
+
+    fun setMode(mode: SyncMode, save: Boolean = true, context: Context? = null) {
         currentMode = mode
         activePolicy = when (mode) {
             SyncMode.HOME_TEST -> HomeTestPolicy()
             SyncMode.OFFICE_PROD -> OfficeProdPolicy()
+        }
+        if (save && context != null) {
+            val prefs = context.getSharedPreferences("kmsp_prefs", Context.MODE_PRIVATE)
+            prefs.edit().putString("sync_mode", mode.name).apply()
         }
         Log.i(TAG, "PresenceEngine mode changed to: ${activePolicy.getPolicyName()}")
     }
@@ -98,4 +113,3 @@ object PresenceEngine {
         return activePolicy.isSyncPermitted(context)
     }
 }
-
