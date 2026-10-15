@@ -98,3 +98,4 @@ object PresenceEngine {
         return activePolicy.isSyncPermitted(context)
     }
 }
+

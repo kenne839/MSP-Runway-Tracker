@@ -29,3 +29,4 @@ class SyncTileService : TileService() {
         qsTile?.updateTile()
     }
 }
+

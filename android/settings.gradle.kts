@@ -15,3 +15,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "KMSP Runway Tracker Office Bridge"
 include(":app")
+
