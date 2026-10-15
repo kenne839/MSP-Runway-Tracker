@@ -5,6 +5,7 @@
 #include "ble_client.h"
 #include "runway_leds.h"
 #include "theme_manager.h"
+#include "replay_manager.h"
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
@@ -67,6 +68,7 @@ void initBleClient() {
     if (ble_mutex == nullptr) {
         ble_mutex = xSemaphoreCreateMutex();
     }
+    initReplayManager();
     Serial.println(F("[BLE] Initializing Bluetooth Low Energy on ESP32-S3..."));
     BLEDevice::init(BLE_DEVICE_NAME);
     BLEDevice::setMTU(512);
@@ -230,7 +232,14 @@ bool pollBleTelemetry(DisplayTelemetryData& out_telemetry) {
     }
 
     if (has_new_payload) {
+        if (payload_to_process.indexOf("\"batch_start_epoch\"") >= 0 || payload_to_process.indexOf("\"operations\"") >= 0) {
+            return ingestReplayBatchJson(payload_to_process, out_telemetry);
+        }
         return processPayloadJson(payload_to_process, out_telemetry);
+    }
+
+    if (isReplayBatchActive()) {
+        return tickReplay(millis(), out_telemetry);
     }
 
     return false;
