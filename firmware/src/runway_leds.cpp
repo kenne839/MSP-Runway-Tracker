@@ -90,22 +90,17 @@ static inline uint8_t applyCieGamma(uint8_t val) {
 #if defined(BOARD_MODE_DEVKIT)
 static void setDevKitRgb(uint8_t r, uint8_t g, uint8_t b) {
     uint8_t mb = getThemeConfig().master_brightness;
+    if (mb < 40) mb = 40; // Ensure visible brightness on desktop
 
-    // Minimum PWM dynamic range floor for DevKit single-LED:
-    // Guarantees sufficient integer steps for secondary color mixing (e.g. amber/orange)
-    // without visible color jumping or die separation.
-    if (mb < 16) mb = 16;
-
-    // Rock-solid integer scaling with rounding:
-    // Eliminates frame-rate-dependent temporal dithering that creates 5-15 Hz frantic strobe flashing.
     uint8_t sr = (uint8_t)(((uint16_t)r * mb + 127) / 255);
     uint8_t sg = (uint8_t)(((uint16_t)g * mb + 127) / 255);
     uint8_t sb = (uint8_t)(((uint16_t)b * mb + 127) / 255);
 
-    // Drive both GPIO 48 (DevKitC-1 v1.0) and GPIO 38 (DevKitC-1 v1.1 / clones)
-    // using native ESP32-S3 hardware WS2812 pulse stream
+    // Native hardware WS2812 driver for ESP32-S3:
+    // GPIO 48 (DevKitC-1 v1.0), GPIO 38 (DevKitC-1 v1.1 / clones), GPIO 21 (Zero/Mini)
     neopixelWrite(48, sr, sg, sb);
     neopixelWrite(38, sr, sg, sb);
+    neopixelWrite(21, sr, sg, sb);
 #ifdef RGB_BUILTIN
     neopixelWrite(RGB_BUILTIN, sr, sg, sb);
 #endif
@@ -120,26 +115,23 @@ void initLeds() {
     }
     uint8_t init_brightness = getThemeConfig().master_brightness;
 #if defined(BOARD_MODE_DEVKIT)
-    // Enable RGB power-gate pin if present on this board variant
+    // Enable RGB power-gate pin (GPIO 47 on DevKitC-1 v1.0, GPIO 33 on some clones)
     pinMode(47, OUTPUT);
     digitalWrite(47, HIGH);
+    pinMode(33, OUTPUT);
+    digitalWrite(33, HIGH);
 
-    FastLED.addLeds<WS2812B, PIN_LED_DATA, GRB>(leds, NUM_LEDS);
-    FastLED.setMaxPowerInVoltsAndMilliamps(5, 1200);
-    FastLED.setBrightness(init_brightness);
-    FastLED.setDither(DISABLE_DITHER);
-
-    // Immediately clear uninitialized power-on white glow
+    // Clear uninitialized power-on state
     setDevKitRgb(0, 0, 0);
     delay(50);
 
     // Quick POST startup color sequence: Green -> Orange -> Blue -> Off
     setDevKitRgb(0, 180, 0);       // Green
-    delay(250);
+    delay(200);
     setDevKitRgb(255, 120, 0);     // Orange (Landing preview)
-    delay(250);
+    delay(200);
     setDevKitRgb(0, 100, 255);     // Blue (Takeoff preview)
-    delay(250);
+    delay(200);
     setDevKitRgb(0, 0, 0);         // Off
 #else
     FastLED.addLeds<WS2812B, PIN_LED_DATA, GRB>(leds, NUM_LEDS);
