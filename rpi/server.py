@@ -133,7 +133,7 @@ def make_handler(state: TelemetryState):
                         window_minutes = 30
 
                 batch_dict = state.get_replay_batch(window_minutes=window_minutes)
-                raw_body = json.dumps(batch_dict, indent=2).encode("utf-8")
+                raw_body = json.dumps(batch_dict, separators=(',', ':')).encode("utf-8")
 
                 # Wire compression: check Accept-Encoding
                 accept_encoding = self.headers.get("Accept-Encoding", "")

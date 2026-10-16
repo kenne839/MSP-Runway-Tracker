@@ -1,6 +1,7 @@
 #include "replay_manager.h"
 #include "runway_leds.h"
 #include "theme_manager.h"
+#include "ble_client.h"
 #include <ArduinoJson.h>
 
 static SemaphoreHandle_t replay_mutex = nullptr;
@@ -38,12 +39,21 @@ uint8_t getReplayEventCount() {
     return s_event_count;
 }
 
-bool ingestReplayBatchJson(const String& json_str, DisplayTelemetryData& out_telemetry) {
+bool ingestReplayBatchJson(const char* json_str, size_t json_len, DisplayTelemetryData& out_telemetry) {
+    if (json_str == nullptr || json_len == 0) {
+        return false;
+    }
+
+    Serial.printf("[REPLAY] Ingesting batch. Free heap before JSON parse: %lu bytes (payload: %u bytes)\n",
+                  (unsigned long)esp_get_free_heap_size(), (unsigned int)json_len);
+
     JsonDocument doc;
-    DeserializationError error = deserializeJson(doc, json_str);
+    DeserializationError error = deserializeJson(doc, json_str, json_len);
     if (error) {
-        Serial.print(F("[REPLAY] JSON Parse error: "));
-        Serial.println(error.f_str());
+        Serial.printf("[REPLAY] JSON Parse error: %s (input size: %u bytes)\n", error.c_str(), (unsigned int)json_len);
+#if defined(BOARD_MODE_BLE)
+        sendBleApplicationAck(false, 0, 0, error.c_str());
+#endif
         return false;
     }
 
@@ -81,10 +91,14 @@ bool ingestReplayBatchJson(const String& json_str, DisplayTelemetryData& out_tel
     // 5. Ingest and merge operations queue
     JsonArray ops = doc["operations"];
     if (ops.isNull()) {
+#if defined(BOARD_MODE_BLE)
+        sendBleApplicationAck(false, 0, 0, "MISSING_OPERATIONS");
+#endif
         return false;
     }
 
     uint32_t now = millis();
+    uint32_t batch_id = doc["batch_id"] | 0;
 
     {
         ReplayLockGuard lock;
@@ -124,6 +138,20 @@ bool ingestReplayBatchJson(const String& json_str, DisplayTelemetryData& out_tel
             s_event_count++;
         }
 
+        // Bench verification / Immediate Physical Feedback:
+        // If the first event offset is > 2 seconds, shift timeline so the first event starts at offset 2s!
+        if (s_event_count > 0 && s_events[0].offset_sec > 2) {
+            uint32_t shift = s_events[0].offset_sec - 2;
+            Serial.printf("[REPLAY] Bench alignment: shifted timeline by -%us (first event will fire in 2s!)\n", shift);
+            for (uint8_t i = 0; i < s_event_count; i++) {
+                if (s_events[i].offset_sec >= shift) {
+                    s_events[i].offset_sec -= shift;
+                } else {
+                    s_events[i].offset_sec = 0;
+                }
+            }
+        }
+
         s_batch_start_millis = now;
         s_last_sync_millis = now;
         s_batch_active = (s_event_count > 0);
@@ -133,11 +161,21 @@ bool ingestReplayBatchJson(const String& json_str, DisplayTelemetryData& out_tel
     out_telemetry.last_rx_millis = now;
     out_telemetry.tracked_count = doc["operations_count"] | s_event_count;
 
-    // Instantly wake OLED display if asleep to prevent missed arrival announcements
-    wakeDisplay();
+    // Display temporary 3.5s confirmation splash on OLED
+    showSyncIngestionCard(s_event_count, s_window_seconds);
 
-    Serial.printf("[REPLAY] Ingested new batch: %u operations over %u sec window\n", s_event_count, s_window_seconds);
+#if defined(BOARD_MODE_BLE)
+    // Transmit Application-Level ACK over NUS TX
+    sendBleApplicationAck(true, batch_id, s_event_count);
+#endif
+
+    Serial.printf("[REPLAY] Ingested new batch: %u operations over %u sec window | Free Heap: %lu bytes\n",
+                  s_event_count, s_window_seconds, (unsigned long)esp_get_free_heap_size());
     return true;
+}
+
+bool ingestReplayBatchJson(const String& json_str, DisplayTelemetryData& out_telemetry) {
+    return ingestReplayBatchJson(json_str.c_str(), json_str.length(), out_telemetry);
 }
 
 bool tickReplay(uint32_t current_millis, DisplayTelemetryData& out_telemetry) {

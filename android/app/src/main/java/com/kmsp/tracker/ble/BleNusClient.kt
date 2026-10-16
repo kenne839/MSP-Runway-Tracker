@@ -6,6 +6,7 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
+import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.bluetooth.BluetoothStatusCodes
@@ -15,6 +16,7 @@ import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.os.Build
 import android.util.Log
+import org.json.JSONObject
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -25,6 +27,7 @@ private const val TAG = "KMSP_BLE"
 val NUS_SERVICE_UUID: UUID = UUID.fromString("6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
 val NUS_RX_UUID: UUID = UUID.fromString("6E400002-B5A3-F393-E0A9-E50E24DCCA9E")
 val NUS_TX_UUID: UUID = UUID.fromString("6E400003-B5A3-F393-E0A9-E50E24DCCA9E")
+val CLIENT_CONFIG_DESCRIPTOR_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
 class BleNusClient(private val context: Context) {
 
@@ -111,12 +114,14 @@ class BleNusClient(private val context: Context) {
         val connectLatch = CountDownLatch(1)
         val mtuLatch = CountDownLatch(1)
         val servicesDiscoveredLatch = CountDownLatch(1)
+        val ackLatch = CountDownLatch(1)
         val writeSuccess = AtomicBoolean(false)
         var currentWriteLatch: CountDownLatch? = null
         var negotiatedMtu = 23
         var activeGatt: BluetoothGatt? = null
         var rxCharacteristic: BluetoothGattCharacteristic? = null
         var isConnected = false
+        var appAckResponse = ""
 
         val gattCallback = object : BluetoothGattCallback() {
             override fun onConnectionStateChange(gatt: BluetoothGatt?, status: Int, newState: Int) {
@@ -141,12 +146,14 @@ class BleNusClient(private val context: Context) {
                     mtuLatch.countDown()
                     servicesDiscoveredLatch.countDown()
                     currentWriteLatch?.countDown()
+                    ackLatch.countDown()
                 } else if (status != BluetoothGatt.GATT_SUCCESS) {
                     Log.w(TAG, "GATT error status=$status, newState=$newState")
                     connectLatch.countDown()
                     mtuLatch.countDown()
                     servicesDiscoveredLatch.countDown()
                     currentWriteLatch?.countDown()
+                    ackLatch.countDown()
                 }
             }
 
@@ -161,7 +168,26 @@ class BleNusClient(private val context: Context) {
                 if (status == BluetoothGatt.GATT_SUCCESS) {
                     val service = gatt?.getService(NUS_SERVICE_UUID)
                     rxCharacteristic = service?.getCharacteristic(NUS_RX_UUID)
-                    Log.i(TAG, "Services discovered. RX characteristic ready: ${rxCharacteristic != null}")
+                    val txCharacteristic = service?.getCharacteristic(NUS_TX_UUID)
+
+                    // Enable closed-loop Application ACK notifications on NUS TX
+                    if (txCharacteristic != null) {
+                        gatt?.setCharacteristicNotification(txCharacteristic, true)
+                        val cccd = txCharacteristic.getDescriptor(CLIENT_CONFIG_DESCRIPTOR_UUID)
+                        if (cccd != null) {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                gatt?.writeDescriptor(cccd, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+                            } else {
+                                @Suppress("DEPRECATION")
+                                cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                                @Suppress("DEPRECATION")
+                                gatt?.writeDescriptor(cccd)
+                            }
+                            Log.i(TAG, "Enabled NUS TX notifications for closed-loop ACK")
+                        }
+                    }
+
+                    Log.i(TAG, "Services discovered. RX ready: ${rxCharacteristic != null}, TX ready: ${txCharacteristic != null}")
                 } else {
                     Log.w(TAG, "Services discovery failed with status $status")
                 }
@@ -181,6 +207,32 @@ class BleNusClient(private val context: Context) {
                 }
                 currentWriteLatch?.countDown()
             }
+
+            override fun onCharacteristicChanged(
+                gatt: BluetoothGatt,
+                characteristic: BluetoothGattCharacteristic,
+                value: ByteArray
+            ) {
+                if (characteristic.uuid == NUS_TX_UUID) {
+                    val ackStr = String(value, Charsets.UTF_8).trim()
+                    Log.i(TAG, "Application ACK received from desk board: $ackStr")
+                    appAckResponse = ackStr
+                    ackLatch.countDown()
+                }
+            }
+
+            @Deprecated("Deprecated in Java")
+            override fun onCharacteristicChanged(
+                gatt: BluetoothGatt?,
+                characteristic: BluetoothGattCharacteristic?
+            ) {
+                if (characteristic?.uuid == NUS_TX_UUID) {
+                    val ackStr = characteristic.getStringValue(0)?.trim() ?: ""
+                    Log.i(TAG, "Application ACK received from desk board (legacy): $ackStr")
+                    appAckResponse = ackStr
+                    ackLatch.countDown()
+                }
+            }
         }
 
         try {
@@ -192,7 +244,6 @@ class BleNusClient(private val context: Context) {
             }
 
             onProgress?.invoke("Connected! Negotiating MTU & discovering services...")
-            // Wait up to 2 seconds for MTU negotiation
             mtuLatch.await(2, TimeUnit.SECONDS)
 
             if (!servicesDiscoveredLatch.await(5, TimeUnit.SECONDS) || rxCharacteristic == null) {
@@ -201,9 +252,14 @@ class BleNusClient(private val context: Context) {
 
             val charac = rxCharacteristic ?: return Result.failure(IllegalStateException("NUS RX Characteristic not found"))
 
-            // 3. Transmit using Stop-and-Wait Write-With-Response
-            val fullPayload = (payloadJson.trimEnd() + "\n").toByteArray(Charsets.UTF_8)
-            // Use 240-byte chunks matching desktop test harness for optimal throughput without buffer congestion
+            // 3. Minify JSON: strip internal whitespace and newlines so the only '\n' is the end-of-frame delimiter
+            val minifiedJson = try {
+                JSONObject(payloadJson).toString()
+            } catch (e: Exception) {
+                payloadJson.replace("\r", "").replace("\n", " ").trim()
+            }
+
+            val fullPayload = (minifiedJson.trimEnd() + "\n").toByteArray(Charsets.UTF_8)
             val chunkSize = minOf((negotiatedMtu - 3).coerceAtLeast(20), 240)
             var bytesSent = 0
             val totalBytes = fullPayload.size
@@ -245,10 +301,24 @@ class BleNusClient(private val context: Context) {
                 }
 
                 bytesSent += chunk.size
-                onProgress?.invoke("Sent $bytesSent / $totalBytes bytes")
+                onProgress?.invoke("Streaming payload: $bytesSent / $totalBytes bytes")
             }
 
-            Log.i(TAG, "Transmission complete: $bytesSent bytes sent.")
+            // 4. Closed-loop verification: Await Application ACK notification from Desk Board firmware
+            onProgress?.invoke("Payload sent ($bytesSent B). Awaiting firmware Application ACK...")
+            val ackReceived = ackLatch.await(5, TimeUnit.SECONDS)
+            if (!ackReceived) {
+                Log.w(TAG, "Desk board application ACK timed out")
+                return Result.failure(IllegalStateException("Payload sent ($bytesSent B), but Desk Board application ACK timed out."))
+            }
+
+            if (!appAckResponse.contains("\"status\":\"ACK\"")) {
+                Log.w(TAG, "Desk board rejected batch: $appAckResponse")
+                return Result.failure(IllegalStateException("Desk Board rejected batch: $appAckResponse"))
+            }
+
+            Log.i(TAG, "Closed-loop verification successful: $appAckResponse")
+            onProgress?.invoke("SUCCESS: Confirmed by Desk Board ($appAckResponse)!")
             return Result.success(bytesSent)
 
         } catch (e: SecurityException) {
@@ -256,7 +326,7 @@ class BleNusClient(private val context: Context) {
         } catch (e: Exception) {
             return Result.failure(e)
         } finally {
-            // 4. Deterministic teardown: disconnect and close immediately
+            // 5. Deterministic teardown: disconnect and close
             try {
                 activeGatt?.disconnect()
                 Thread.sleep(150)

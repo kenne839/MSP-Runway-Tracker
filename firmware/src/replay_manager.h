@@ -23,6 +23,7 @@ struct ReplayEvent {
 };
 
 void initReplayManager();
+bool ingestReplayBatchJson(const char* json_str, size_t json_len, DisplayTelemetryData& out_telemetry);
 bool ingestReplayBatchJson(const String& json_str, DisplayTelemetryData& out_telemetry);
 bool tickReplay(uint32_t current_millis, DisplayTelemetryData& out_telemetry);
 bool isReplayBatchActive();

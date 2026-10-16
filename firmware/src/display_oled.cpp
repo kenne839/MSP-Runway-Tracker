@@ -238,6 +238,48 @@ void showWifiStatus(bool connected, const char* ip_str) {
     display.display();
 }
 
+static uint32_t s_sync_card_until_millis = 0;
+
+#if defined(BOARD_MODE_BLE)
+extern bool isReplayBatchActive();
+extern uint8_t getReplayEventCount();
+#endif
+
+void showSyncIngestionCard(uint8_t ops_count, uint32_t window_sec) {
+    if (!display_initialized) return;
+    wakeDisplay();
+    display.clearDisplay();
+    display.setTextWrap(false);
+
+    // Top Yellow Zone (y = 0..15): Glowing header
+    display.fillRect(0, 0, SCREEN_WIDTH, 15, SSD1306_WHITE);
+    display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
+    display.setTextSize(1);
+    display.setCursor(4, 4);
+    display.print(F("OFFICE BATCH INGESTED"));
+
+    // Bottom Blue Zone (y = 16..63)
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(0, 19);
+    char buf[32];
+    snprintf(buf, sizeof(buf), "Queued: %u Operations", ops_count);
+    display.print(buf);
+
+    display.setCursor(0, 31);
+    snprintf(buf, sizeof(buf), "Window: %u min batch", (unsigned int)(window_sec / 60));
+    display.print(buf);
+
+    display.setCursor(0, 43);
+    display.print(F("Replay buffer active!"));
+
+    display.drawFastHLine(0, 54, SCREEN_WIDTH, SSD1306_WHITE);
+    display.setCursor(0, 56);
+    display.print(F("Starting in 2s..."));
+
+    display.display();
+    s_sync_card_until_millis = millis() + 3500;
+}
+
 void updateTelemetryData(const DisplayTelemetryData& data) {
     current_data = data;
     last_telemetry_rx_time = millis();
@@ -264,9 +306,14 @@ void renderDisplayLoop() {
         return;
     }
 
+    // Keep ingestion confirmation card on screen for 3.5s
+    if (now < s_sync_card_until_millis) {
+        return;
+    }
+
     // Synchronized link loss timeout: if offline > LINK_LOSS_IDLE_TIMEOUT_MS (45s), declare link lost
 #if defined(BOARD_MODE_BLE)
-    bool is_stale = has_received_initial_data && !current_data.link_online && (now - last_telemetry_rx_time > LINK_LOSS_IDLE_TIMEOUT_MS);
+    bool is_stale = has_received_initial_data && !current_data.link_online && !isReplayBatchActive() && (now - last_telemetry_rx_time > LINK_LOSS_IDLE_TIMEOUT_MS);
 #else
     bool is_stale = has_received_initial_data && (now - last_telemetry_rx_time > LINK_LOSS_IDLE_TIMEOUT_MS);
 #endif
@@ -483,6 +530,11 @@ void renderDisplayLoop() {
             strncpy(badge, "[NET DOWN]", sizeof(badge) - 1);
             badge[sizeof(badge) - 1] = '\0';
             is_warning = true;
+#if defined(BOARD_MODE_BLE)
+        } else if (isReplayBatchActive()) {
+            strncpy(badge, "[REPLAY]", sizeof(badge) - 1);
+            badge[sizeof(badge) - 1] = '\0';
+#endif
         } else if (current_data.weather.valid && current_data.weather.flight_category[0] != '\0') {
             snprintf(badge, sizeof(badge), "[%s]", current_data.weather.flight_category);
         } else {
@@ -567,6 +619,11 @@ void renderDisplayLoop() {
         // Row 4 (y = 54): Status Footer (strictly <= 21 chars, never clips)
         display.setCursor(0, 54);
         char foot[24];
+#if defined(BOARD_MODE_BLE)
+        if (isReplayBatchActive()) {
+            snprintf(foot, sizeof(foot), "Replay: %u queued", getReplayEventCount());
+        } else
+#endif
         if (current_data.rate_limited) {
             snprintf(foot, sizeof(foot), "OpenSky: Quota 429");
         } else if (!current_data.api_online) {

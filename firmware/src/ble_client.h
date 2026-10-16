@@ -8,5 +8,6 @@
 void initBleClient();
 bool isBleConnected();
 bool pollBleTelemetry(DisplayTelemetryData& out_telemetry);
+void sendBleApplicationAck(bool success, uint32_t batch_id, uint8_t ops_count, const char* error_msg = nullptr);
 
 #endif

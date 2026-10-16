@@ -27,42 +27,73 @@ struct BleLockGuard {
     ~BleLockGuard() { UNLOCK_BLE(); }
 };
 
-static String incoming_buffer = "";
-static bool new_payload_ready = false;
-static String latest_payload = "";
+// Bounded static BSS reception buffers (Zero heap fragmentation)
+#define BLE_RX_BUFFER_SIZE  16384
+
+static char s_rx_buffer[BLE_RX_BUFFER_SIZE];
+static size_t s_rx_head = 0;
+static char s_ready_buffer[BLE_RX_BUFFER_SIZE];
+static size_t s_ready_len = 0;
+static volatile bool s_payload_available = false;
 
 class ServerCallbacks : public BLEServerCallbacks {
     void onConnect(BLEServer* server) override {
         device_connected = true;
-        Serial.println(F("[BLE] Office PC client connected."));
+        Serial.println(F("[BLE] Client connected."));
     }
 
     void onDisconnect(BLEServer* server) override {
         device_connected = false;
-        Serial.println(F("[BLE] Office PC client disconnected."));
+        Serial.println(F("[BLE] Client disconnected."));
     }
 };
 
 class RxCallbacks : public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic* pCharacteristic) override {
         std::string rxValue = pCharacteristic->getValue();
-        if (rxValue.length() > 0) {
-            BleLockGuard lock;
-            for (size_t i = 0; i < rxValue.length(); i++) {
-                char c = rxValue[i];
-                if (c == '\n' || c == '\r') {
-                    if (incoming_buffer.length() > 0) {
-                        latest_payload = incoming_buffer;
-                        new_payload_ready = true;
-                        incoming_buffer = "";
-                    }
+        size_t len = rxValue.length();
+        if (len == 0) return;
+
+        BleLockGuard lock;
+        for (size_t i = 0; i < len; i++) {
+            char c = rxValue[i];
+            if (c == '\n' || c == '\r') {
+                if (s_rx_head > 0) {
+                    s_rx_buffer[s_rx_head] = '\0';
+                    memcpy(s_ready_buffer, s_rx_buffer, s_rx_head + 1);
+                    s_ready_len = s_rx_head;
+                    s_payload_available = true;
+                    s_rx_head = 0;
+                }
+            } else {
+                if (s_rx_head < (BLE_RX_BUFFER_SIZE - 1)) {
+                    s_rx_buffer[s_rx_head++] = c;
                 } else {
-                    incoming_buffer += c;
+                    Serial.println(F("[BLE] Warning: RX buffer overflow! Dropping corrupted frame."));
+                    s_rx_head = 0;
                 }
             }
         }
     }
 };
+
+void sendBleApplicationAck(bool success, uint32_t batch_id, uint8_t ops_count, const char* error_msg) {
+    if (pTxCharacteristic != nullptr && device_connected) {
+        char ack_json[160];
+        if (success) {
+            snprintf(ack_json, sizeof(ack_json), 
+                "{\"status\":\"ACK\",\"batch_id\":%lu,\"ops\":%u,\"free_heap\":%lu}\n",
+                (unsigned long)batch_id, ops_count, (unsigned long)esp_get_free_heap_size());
+        } else {
+            snprintf(ack_json, sizeof(ack_json), 
+                "{\"status\":\"NACK\",\"error\":\"%s\",\"free_heap\":%lu}\n",
+                error_msg ? error_msg : "UNKNOWN", (unsigned long)esp_get_free_heap_size());
+        }
+        pTxCharacteristic->setValue((uint8_t*)ack_json, strlen(ack_json));
+        pTxCharacteristic->notify();
+        Serial.printf("[BLE] >> Transmitted Application ACK: %s", ack_json);
+    }
+}
 
 void initBleClient() {
     if (ble_mutex == nullptr) {
@@ -106,7 +137,7 @@ bool isBleConnected() {
     return device_connected;
 }
 
-static bool processPayloadJson(const String& json_str, DisplayTelemetryData& out_telemetry) {
+static bool processPayloadJson(const char* json_str, DisplayTelemetryData& out_telemetry) {
     JsonDocument doc;
     DeserializationError error = deserializeJson(doc, json_str);
     if (error) {
@@ -205,8 +236,9 @@ bool pollBleTelemetry(DisplayTelemetryData& out_telemetry) {
         old_device_connected = device_connected;
     }
 
-    String payload_to_process = "";
     bool has_new_payload = false;
+    static char local_parse_buffer[BLE_RX_BUFFER_SIZE];
+    size_t local_parse_len = 0;
 
     {
         BleLockGuard lock;
@@ -214,28 +246,33 @@ bool pollBleTelemetry(DisplayTelemetryData& out_telemetry) {
         while (Serial.available()) {
             char c = (char)Serial.read();
             if (c == '\n' || c == '\r') {
-                if (incoming_buffer.length() > 0) {
-                    latest_payload = incoming_buffer;
-                    new_payload_ready = true;
-                    incoming_buffer = "";
+                if (s_rx_head > 0) {
+                    s_rx_buffer[s_rx_head] = '\0';
+                    memcpy(s_ready_buffer, s_rx_buffer, s_rx_head + 1);
+                    s_ready_len = s_rx_head;
+                    s_payload_available = true;
+                    s_rx_head = 0;
                 }
             } else {
-                incoming_buffer += c;
+                if (s_rx_head < (BLE_RX_BUFFER_SIZE - 1)) {
+                    s_rx_buffer[s_rx_head++] = c;
+                }
             }
         }
 
-        if (new_payload_ready) {
-            payload_to_process = latest_payload;
-            new_payload_ready = false;
+        if (s_payload_available) {
+            memcpy(local_parse_buffer, s_ready_buffer, s_ready_len + 1);
+            local_parse_len = s_ready_len;
+            s_payload_available = false;
             has_new_payload = true;
         }
     }
 
     if (has_new_payload) {
-        if (payload_to_process.indexOf("\"batch_start_epoch\"") >= 0 || payload_to_process.indexOf("\"operations\"") >= 0) {
-            return ingestReplayBatchJson(payload_to_process, out_telemetry);
+        if (strstr(local_parse_buffer, "\"batch_start_epoch\"") != nullptr || strstr(local_parse_buffer, "\"operations\"") != nullptr) {
+            return ingestReplayBatchJson(local_parse_buffer, local_parse_len, out_telemetry);
         }
-        return processPayloadJson(payload_to_process, out_telemetry);
+        return processPayloadJson(local_parse_buffer, out_telemetry);
     }
 
     if (isReplayBatchActive()) {
