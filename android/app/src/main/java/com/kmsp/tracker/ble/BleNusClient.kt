@@ -273,14 +273,10 @@ class BleNusClient(private val context: Context) {
 
             val charac = rxCharacteristic ?: return Result.failure(IllegalStateException("NUS RX Characteristic not found"))
 
-            // 3. Minify JSON: strip internal whitespace and newlines so the only '\n' is the end-of-frame delimiter
-            val minifiedJson = try {
-                JSONObject(payloadJson).toString()
-            } catch (e: Exception) {
-                payloadJson.replace("\r", "").replace("\n", " ").trim()
-            }
-
-            val fullPayload = (minifiedJson.trimEnd() + "\n").toByteArray(Charsets.UTF_8)
+            // 3. Clean JSON: Strip internal newlines so the only '\n' is the end-of-frame delimiter.
+            // Avoid Android JSONObject DOM re-serialization which reorders keys and mutates structures.
+            val cleanJson = payloadJson.replace("\r", "").replace("\n", "").trim()
+            val fullPayload = (cleanJson + "\n").toByteArray(Charsets.UTF_8)
             val chunkSize = minOf((negotiatedMtu - 3).coerceAtLeast(20), 240)
             var bytesSent = 0
             val totalBytes = fullPayload.size

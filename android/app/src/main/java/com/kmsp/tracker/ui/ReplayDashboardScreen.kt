@@ -115,7 +115,7 @@ fun ReplayDashboardScreen() {
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "App Build: v1.0.6 (Build 7)",
+                    text = "App Build: v1.0.7 (Build 8)",
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold

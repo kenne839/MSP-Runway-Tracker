@@ -65,49 +65,10 @@ class ServerCallbacks : public BLEServerCallbacks {
 };
 
 static void feedRxChar(char c) {
-    if (s_rx_head < (BLE_RX_BUFFER_SIZE - 1)) {
-        s_rx_buffer[s_rx_head++] = c;
-    } else {
-        Serial.println(F("[BLE] Warning: RX buffer overflow! Dropping corrupted frame."));
-        s_rx_head = 0;
-        s_brace_depth = 0;
-        s_in_string = false;
-        s_escape = false;
-        return;
-    }
-
-    // Bracket & string tracking to determine JSON completeness
-    if (s_escape) {
-        s_escape = false;
-    } else if (c == '\\') {
-        if (s_in_string) s_escape = true;
-    } else if (c == '"') {
-        s_in_string = !s_in_string;
-    } else if (!s_in_string) {
-        if (c == '{') {
-            s_brace_depth++;
-        } else if (c == '}') {
-            s_brace_depth--;
-            if (s_brace_depth == 0 && s_rx_head > 1) {
-                // Complete JSON object finished!
-                s_rx_buffer[s_rx_head] = '\0';
-                memcpy(s_ready_buffer, s_rx_buffer, s_rx_head + 1);
-                s_ready_len = s_rx_head;
-                s_payload_available = true;
-                s_rx_head = 0;
-                s_brace_depth = 0;
-                s_in_string = false;
-                s_escape = false;
-                Serial.printf("[BLE] Complete frame detected on brace depth 0: %u bytes!\n", (unsigned int)s_ready_len);
-                return;
-            }
-        }
-    }
-
-    // Delimitation for newline when outside of JSON string or braces, or newline fallback
+    // Delimitation for newline: the definitive end-of-frame delimiter across NUS
     if (c == '\n' || c == '\r') {
         if (!s_payload_available && s_rx_head > 1) {
-            // Trim leading/trailing whitespace and check for valid JSON wrapper
+            // Trim leading and trailing whitespace
             size_t start = 0;
             while (start < s_rx_head && (s_rx_buffer[start] == ' ' || s_rx_buffer[start] == '\n' || s_rx_buffer[start] == '\r')) start++;
             size_t end = s_rx_head;
@@ -118,12 +79,26 @@ static void feedRxChar(char c) {
                 s_ready_len = end - start;
                 s_payload_available = true;
                 Serial.printf("[BLE] Complete frame detected on newline delimiter: %u bytes!\n", (unsigned int)s_ready_len);
+            } else if (end > start) {
+                Serial.printf("[BLE] Discarding non-JSON newline-terminated fragment: %u bytes\n", (unsigned int)(end - start));
             }
         }
         s_rx_head = 0;
         s_brace_depth = 0;
         s_in_string = false;
         s_escape = false;
+        return;
+    }
+
+    if (s_rx_head < (BLE_RX_BUFFER_SIZE - 1)) {
+        s_rx_buffer[s_rx_head++] = c;
+    } else {
+        Serial.println(F("[BLE] Warning: RX buffer overflow! Dropping corrupted frame."));
+        s_rx_head = 0;
+        s_brace_depth = 0;
+        s_in_string = false;
+        s_escape = false;
+        return;
     }
 }
 
@@ -133,7 +108,7 @@ static void handleIncomingBytes(const uint8_t* data, size_t len) {
     for (size_t i = 0; i < len; i++) {
         feedRxChar((char)data[i]);
     }
-    Serial.printf("[BLE RX] Chunk: %u bytes (accum=%u, depth=%d)\n", (unsigned int)len, (unsigned int)s_rx_head, s_brace_depth);
+    Serial.printf("[BLE RX] Chunk: %u bytes (accum=%u)\n", (unsigned int)len, (unsigned int)s_rx_head);
 }
 
 class RxCallbacks : public BLECharacteristicCallbacks {
