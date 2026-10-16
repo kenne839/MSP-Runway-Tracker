@@ -276,6 +276,10 @@ class BleNusClient(private val context: Context) {
             // 3. Clean JSON: Strip internal newlines so the only '\n' is the end-of-frame delimiter.
             // Avoid Android JSONObject DOM re-serialization which reorders keys and mutates structures.
             val cleanJson = payloadJson.replace("\r", "").replace("\n", "").trim()
+            if (!cleanJson.startsWith("{") || !cleanJson.endsWith("}")) {
+                Log.e(TAG, "Cannot transmit invalid non-JSON payload: ${cleanJson.take(60)}")
+                return Result.failure(IllegalStateException("Cannot transmit invalid non-JSON payload to desk board"))
+            }
             val fullPayload = (cleanJson + "\n").toByteArray(Charsets.UTF_8)
             val chunkSize = minOf((negotiatedMtu - 3).coerceAtLeast(20), 240)
             var bytesSent = 0

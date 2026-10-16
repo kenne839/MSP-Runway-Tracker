@@ -31,7 +31,6 @@ class ReplayApiClient(
         val endpoint = "$baseUrl/api/v1/office_replay_batch?window_minutes=$windowMinutes"
         val requestBuilder = Request.Builder()
             .url(endpoint)
-            .addHeader("Accept-Encoding", "gzip")
             .addHeader("User-Agent", "KMSP-Office-Bridge/1.0")
 
         if (token.isNotBlank()) {
@@ -51,9 +50,23 @@ class ReplayApiClient(
                     return Result.failure(IOException("HTTP $code: ${response.message}"))
                 }
 
-                val bodyString = response.body?.string() ?: ""
-                Log.i(TAG, "Replay batch fetched successfully (${bodyString.length} bytes, ${durationMs}ms)")
-                Result.success(bodyString)
+                val body = response.body ?: return Result.failure(IOException("Empty response body from backend"))
+                val rawBytes = body.bytes()
+                val isGzip = response.header("Content-Encoding")?.equals("gzip", ignoreCase = true) == true
+                val jsonString = if (isGzip || (rawBytes.size >= 2 && rawBytes[0] == 0x1f.toByte() && rawBytes[1] == 0x8b.toByte())) {
+                    java.util.zip.GZIPInputStream(rawBytes.inputStream()).bufferedReader(Charsets.UTF_8).use { it.readText() }
+                } else {
+                    String(rawBytes, Charsets.UTF_8)
+                }
+
+                val trimmed = jsonString.trim()
+                if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
+                    Log.e(TAG, "Backend returned non-JSON payload: ${trimmed.take(100)}")
+                    return Result.failure(IllegalStateException("Invalid JSON response received from backend"))
+                }
+
+                Log.i(TAG, "Replay batch fetched successfully (${trimmed.length} bytes, ${durationMs}ms)")
+                Result.success(trimmed)
             }
         } catch (e: Exception) {
             val durationMs = System.currentTimeMillis() - startTime
