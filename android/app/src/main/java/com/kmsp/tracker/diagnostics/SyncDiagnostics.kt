@@ -100,7 +100,8 @@ data class SyncDiagnosticEntry(
     val isOpsVerified: Boolean = false,
 
     val isSuccess: Boolean = false,
-    val statusSummary: String = ""
+    val statusSummary: String = "",
+    val errorMessage: String? = null
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id)
@@ -144,6 +145,7 @@ data class SyncDiagnosticEntry(
         put("is_ops_verified", isOpsVerified)
         put("is_success", isSuccess)
         put("status_summary", statusSummary)
+        put("error_message", errorMessage ?: "")
 
         val flightsArr = JSONArray()
         flights.forEach { flightsArr.put(it.toJson()) }
@@ -201,7 +203,8 @@ data class SyncDiagnosticEntry(
                 isBatchVerified = obj.optBoolean("is_batch_verified", false),
                 isOpsVerified = obj.optBoolean("is_ops_verified", false),
                 isSuccess = obj.optBoolean("is_success", false),
-                statusSummary = obj.optString("status_summary", "")
+                statusSummary = obj.optString("status_summary", ""),
+                errorMessage = obj.optString("error_message").ifEmpty { null }
             )
         }
     }
@@ -374,7 +377,7 @@ object DiagnosticsRepository {
                 totalFlightsVerified = totalFlights,
                 totalBytesTransferred = totalBytes,
                 avgExecutionDurationMs = avgExecMs,
-                totalWakeLockDurationMs = totalWakeLockDurationMs,
+                totalWakeLockDurationMs = totalWakeLockMs,
                 dutyCyclePct = dutyCyclePct,
                 initialBatteryPct = initialBattery,
                 currentBatteryPct = currentBattery,
@@ -452,3 +455,4 @@ object DiagnosticsRepository {
         file.writeText(arr.toString(), Charsets.UTF_8)
     }
 }
+
