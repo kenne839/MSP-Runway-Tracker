@@ -21,16 +21,23 @@ void setup() {
 
     Serial.println();
     Serial.println(F("=================================================="));
-#if defined(BOARD_MODE_DEVKIT)
-    Serial.println(F("   KMSP RUNWAY TRACKER - ESP32-S3 (DEVKIT TEST)   "));
-    Serial.println(F("   OLED: I2C on SDA=GPIO1, SCL=GPIO2              "));
-    Serial.println(F("   LED:  Onboard WS2812 (Landing=Orange, Dep=Blue)"));
-    Serial.println(F("   TIP:  Tap BOOT (GPIO0) to cycle Demo Flights!  "));
+#if defined(BOARD_MODE_DEVKIT) && defined(BOARD_MODE_BLE)
+    Serial.printf("   KMSP RUNWAY TRACKER - %s\n", FIRMWARE_VERSION);
+    Serial.println(F("   MODE: DEVKIT BLE (WS2812 on GPIO48, SDA=1, SCL=2)"));
+    Serial.printf("   BLE Peripheral: %s\n", BLE_DEVICE_NAME);
+    Serial.println(F("   Ready for Android / Companion App sync...       "));
 #elif defined(BOARD_MODE_BLE)
-    Serial.println(F("  KMSP RUNWAY TRACKER - ESP32-S3 (OFFICE BLE MODE)"));
+    Serial.printf("   KMSP RUNWAY TRACKER - %s\n", FIRMWARE_VERSION);
+    Serial.println(F("   MODE: OFFICE BLE (84 WS2812 LEDs, Level Shifted)"));
+    Serial.printf("   BLE Peripheral: %s\n", BLE_DEVICE_NAME);
+#elif defined(BOARD_MODE_DEVKIT)
+    Serial.printf("   KMSP RUNWAY TRACKER - %s\n", FIRMWARE_VERSION);
+    Serial.println(F("   MODE: DEVKIT WI-FI (WS2812 on GPIO48)           "));
 #else
-    Serial.println(F("   KMSP RUNWAY TRACKER - ESP32-S3 (HOME WIFI MODE)"));
+    Serial.printf("   KMSP RUNWAY TRACKER - %s\n", FIRMWARE_VERSION);
+    Serial.println(F("   MODE: HOME WI-FI (84 WS2812 LEDs)               "));
 #endif
+    Serial.printf("   Build Timestamp: %s %s\n", __DATE__, __TIME__);
     Serial.println(F("=================================================="));
 
     // 1. Initialize user button on SW1 (GPIO0)
@@ -38,29 +45,28 @@ void setup() {
 
     // 2. Initialize OLED Display (I2C on GPIO1 / GPIO2)
     initDisplay();
-    showBootScreen("Starting System...");
-    delay(400);
+#if defined(BOARD_MODE_DEVKIT) && defined(BOARD_MODE_BLE)
+    showDetailedBootScreen(FIRMWARE_VERSION, "DevKit BLE", BLE_DEVICE_NAME, 2500);
+#elif defined(BOARD_MODE_BLE)
+    showDetailedBootScreen(FIRMWARE_VERSION, "Office BLE", BLE_DEVICE_NAME, 2500);
+#elif defined(BOARD_MODE_DEVKIT)
+    showDetailedBootScreen(FIRMWARE_VERSION, "DevKit Wi-Fi", "Wi-Fi Mode", 2500);
+#else
+    showDetailedBootScreen(FIRMWARE_VERSION, "Home Wi-Fi", "Wi-Fi Mode", 2500);
+#endif
 
     // 3. Initialize Theme Manager & WS2812B LEDs
-    showBootScreen("Loading LED Theme...");
     initThemeManager();
-    showBootScreen("Initializing LEDs...");
     initLeds();
     startLedAnimationTask();
-    delay(400);
 
     // 4. Initialize Communications
 #if defined(BOARD_MODE_BLE)
-    showBootScreen("Starting BLE Link...");
     initBleClient();
-    showBootScreen("BLE: KMSP-Runway-Office");
-    delay(600);
 #else
     showBootScreen("Connecting Wi-Fi...");
     initNetwork();
     initTelnetServer();
-    showBootScreen("Ready! Polling Pi...");
-    delay(600);
 #endif
 
     memset(&telemetry_data, 0, sizeof(telemetry_data));

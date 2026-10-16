@@ -2,6 +2,10 @@
 
 #include <Arduino.h>
 
+#ifndef FIRMWARE_VERSION
+#define FIRMWARE_VERSION    "v1.0.4-DEV"
+#endif
+
 // =============================================================================
 // HARDWARE PIN DEFINITIONS (Verified against Schematic & Netlist)
 // =============================================================================

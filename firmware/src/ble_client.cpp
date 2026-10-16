@@ -48,6 +48,64 @@ class ServerCallbacks : public BLEServerCallbacks {
     }
 };
 
+static int s_brace_depth = 0;
+static bool s_in_string = false;
+static bool s_escape = false;
+
+static void feedRxChar(char c) {
+    if (s_rx_head < (BLE_RX_BUFFER_SIZE - 1)) {
+        s_rx_buffer[s_rx_head++] = c;
+    } else {
+        Serial.println(F("[BLE] Warning: RX buffer overflow! Dropping corrupted frame."));
+        s_rx_head = 0;
+        s_brace_depth = 0;
+        s_in_string = false;
+        s_escape = false;
+        return;
+    }
+
+    // Bracket & string tracking to determine JSON completeness
+    if (s_escape) {
+        s_escape = false;
+    } else if (c == '\\') {
+        if (s_in_string) s_escape = true;
+    } else if (c == '"') {
+        s_in_string = !s_in_string;
+    } else if (!s_in_string) {
+        if (c == '{') {
+            s_brace_depth++;
+        } else if (c == '}') {
+            s_brace_depth--;
+            if (s_brace_depth == 0 && s_rx_head > 1) {
+                // Complete JSON object finished!
+                s_rx_buffer[s_rx_head] = '\0';
+                memcpy(s_ready_buffer, s_rx_buffer, s_rx_head + 1);
+                s_ready_len = s_rx_head;
+                s_payload_available = true;
+                s_rx_head = 0;
+                s_brace_depth = 0;
+                s_in_string = false;
+                s_escape = false;
+                return;
+            }
+        }
+    }
+
+    // Delimitation for newline when outside of JSON string or braces
+    if ((c == '\n' || c == '\r') && s_brace_depth == 0) {
+        if (!s_payload_available && s_rx_head > 1) {
+            s_rx_buffer[s_rx_head - 1] = '\0';
+            memcpy(s_ready_buffer, s_rx_buffer, s_rx_head);
+            s_ready_len = s_rx_head - 1;
+            s_payload_available = true;
+        }
+        s_rx_head = 0;
+        s_brace_depth = 0;
+        s_in_string = false;
+        s_escape = false;
+    }
+}
+
 class RxCallbacks : public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic* pCharacteristic) override {
         std::string rxValue = pCharacteristic->getValue();
@@ -56,23 +114,7 @@ class RxCallbacks : public BLECharacteristicCallbacks {
 
         BleLockGuard lock;
         for (size_t i = 0; i < len; i++) {
-            char c = rxValue[i];
-            if (c == '\n' || c == '\r') {
-                if (s_rx_head > 0) {
-                    s_rx_buffer[s_rx_head] = '\0';
-                    memcpy(s_ready_buffer, s_rx_buffer, s_rx_head + 1);
-                    s_ready_len = s_rx_head;
-                    s_payload_available = true;
-                    s_rx_head = 0;
-                }
-            } else {
-                if (s_rx_head < (BLE_RX_BUFFER_SIZE - 1)) {
-                    s_rx_buffer[s_rx_head++] = c;
-                } else {
-                    Serial.println(F("[BLE] Warning: RX buffer overflow! Dropping corrupted frame."));
-                    s_rx_head = 0;
-                }
-            }
+            feedRxChar(rxValue[i]);
         }
     }
 };
@@ -244,20 +286,7 @@ bool pollBleTelemetry(DisplayTelemetryData& out_telemetry) {
         BleLockGuard lock;
         // Also support fallback USB Serial input
         while (Serial.available()) {
-            char c = (char)Serial.read();
-            if (c == '\n' || c == '\r') {
-                if (s_rx_head > 0) {
-                    s_rx_buffer[s_rx_head] = '\0';
-                    memcpy(s_ready_buffer, s_rx_buffer, s_rx_head + 1);
-                    s_ready_len = s_rx_head;
-                    s_payload_available = true;
-                    s_rx_head = 0;
-                }
-            } else {
-                if (s_rx_head < (BLE_RX_BUFFER_SIZE - 1)) {
-                    s_rx_buffer[s_rx_head++] = c;
-                }
-            }
+            feedRxChar((char)Serial.read());
         }
 
         if (s_payload_available) {
@@ -269,6 +298,7 @@ bool pollBleTelemetry(DisplayTelemetryData& out_telemetry) {
     }
 
     if (has_new_payload) {
+        Serial.printf("[BLE] Ingestion processing: %u bytes received.\n", (unsigned int)local_parse_len);
         if (strstr(local_parse_buffer, "\"batch_start_epoch\"") != nullptr || strstr(local_parse_buffer, "\"operations\"") != nullptr) {
             return ingestReplayBatchJson(local_parse_buffer, local_parse_len, out_telemetry);
         }

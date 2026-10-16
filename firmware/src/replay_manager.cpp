@@ -164,6 +164,9 @@ bool ingestReplayBatchJson(const char* json_str, size_t json_len, DisplayTelemet
     // Display temporary 3.5s confirmation splash on OLED
     showSyncIngestionCard(s_event_count, s_window_seconds);
 
+    // Immediate physical feedback: Double green flash on LEDs
+    triggerBatchIngestedFeedback();
+
 #if defined(BOARD_MODE_BLE)
     // Transmit Application-Level ACK over NUS TX
     sendBleApplicationAck(true, batch_id, s_event_count);

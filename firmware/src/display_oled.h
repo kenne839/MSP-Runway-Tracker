@@ -44,6 +44,7 @@ struct DisplayTelemetryData {
 
 void initDisplay();
 void showBootScreen(const char* status_text);
+void showDetailedBootScreen(const char* build_ver, const char* mode_str, const char* target_info, uint32_t hold_ms = 2500);
 void showWifiStatus(bool connected, const char* ip_str);
 void showSyncIngestionCard(uint8_t ops_count, uint32_t window_sec);
 void updateTelemetryData(const DisplayTelemetryData& data);

@@ -34,6 +34,7 @@ void resetAllRunwaysToIdle();
 bool renderRunwayAnimations();
 void startLedAnimationTask();
 void showConnectionStatusLed(bool connected);
+void triggerBatchIngestedFeedback();
 void getRecentlyActiveRunwaysStr(char* out_buf, size_t buf_len);
 bool hasHadEventOccurred();
 

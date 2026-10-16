@@ -212,6 +212,49 @@ void showBootScreen(const char* status_text) {
     display.display();
 }
 
+void showDetailedBootScreen(const char* build_ver, const char* mode_str, const char* target_info, uint32_t hold_ms) {
+    if (!display_initialized) return;
+    wakeDisplay();
+    display.clearDisplay();
+    display.setTextWrap(false);
+
+    // Top Yellow Zone (y=0..15): Glowing banner
+    display.fillRect(0, 0, SCREEN_WIDTH, 15, SSD1306_WHITE);
+    display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
+    display.setTextSize(1);
+    display.setCursor(16, 4);
+    display.print(F("KMSP RUNWAY HUB"));
+
+    // Bottom Blue Zone (y=16..63)
+    display.setTextColor(SSD1306_WHITE);
+
+    // Row 1 (y=18): Firmware Version
+    display.setCursor(0, 18);
+    char row1[24];
+    snprintf(row1, sizeof(row1), "FW: %s", build_ver);
+    printFitted(row1, 21);
+
+    // Row 2 (y=29): Mode
+    display.setCursor(0, 29);
+    char row2[24];
+    snprintf(row2, sizeof(row2), "MODE: %s", mode_str);
+    printFitted(row2, 21);
+
+    // Row 3 (y=40): Target Info (BLE name or Wi-Fi SSID)
+    display.setCursor(0, 40);
+    printFitted(target_info, 21);
+
+    // Row 4 (y=53): Divider & Status
+    display.drawFastHLine(0, 51, SCREEN_WIDTH, SSD1306_WHITE);
+    display.setCursor(0, 54);
+    printFitted("Booting system...", 21);
+
+    display.display();
+    if (hold_ms > 0) {
+        delay(hold_ms);
+    }
+}
+
 void showWifiStatus(bool connected, const char* ip_str) {
     if (!display_initialized) return;
     display.clearDisplay();
@@ -325,7 +368,11 @@ void renderDisplayLoop() {
     }
 
     bool has_active_flights = (current_data.flight_count > 0 && !is_stale);
+#if defined(BOARD_MODE_BLE)
+    bool has_warning = false;
+#else
     bool has_warning = (current_data.rate_limited || !current_data.api_online);
+#endif
 
     static bool prev_warning_state = false;
     if (has_warning && !prev_warning_state) {
@@ -514,7 +561,94 @@ void renderDisplayLoop() {
         // =====================================================================
         // IDLE SCREEN: Showing active runway roles & live KMSP METAR weather
         // =====================================================================
-        
+#if defined(BOARD_MODE_BLE)
+        if (!isReplayBatchActive()) {
+            // =================================================================
+            // BLE STANDBY / READY TO INGEST SCREEN
+            // =================================================================
+            // TOP YELLOW ZONE (Rows y = 0 to 15)
+            display.setTextSize(1);
+            display.setTextColor(SSD1306_WHITE);
+            display.setCursor(2, 3);
+            display.print(F("KMSP AIRPORT"));
+            display.setCursor(90, 3);
+            display.print(F("[BLE]"));
+            display.drawFastHLine(0, 15, SCREEN_WIDTH, SSD1306_WHITE);
+
+            // BOTTOM BLUE ZONE (Rows y = 16 to 63)
+            display.setCursor(0, 18);
+            printFitted("BLE: " BLE_DEVICE_NAME, 21);
+
+            display.setCursor(0, 29);
+            printFitted("Status: Ready to Sync", 21);
+
+            display.setCursor(0, 40);
+            printFitted("Awaiting Phone Batch", 21);
+
+            display.drawFastHLine(0, 51, SCREEN_WIDTH, SSD1306_WHITE);
+
+            display.setCursor(0, 54);
+            char foot[24];
+            snprintf(foot, sizeof(foot), "FW:%s %luK", FIRMWARE_VERSION, (unsigned long)(esp_get_free_heap_size() / 1024));
+            printFitted(foot, 21);
+        } else {
+            // =================================================================
+            // BLE ACTIVE REPLAY SCREEN
+            // =================================================================
+            display.setTextSize(1);
+            display.setTextColor(SSD1306_WHITE);
+            display.setCursor(2, 3);
+            display.print(F("KMSP AIRPORT"));
+            display.setCursor(72, 3);
+            display.print(F("[REPLAY]"));
+            display.drawFastHLine(0, 15, SCREEN_WIDTH, SSD1306_WHITE);
+
+            // Row 1 (y = 18): Runway Operational Roles
+            display.setCursor(0, 18);
+            if (current_data.runway_roles_summary[0] != '\0') {
+                printFitted(current_data.runway_roles_summary, 21);
+            } else if (current_data.active_runways_summary[0] != '\0') {
+                char r_buf[24];
+                snprintf(r_buf, sizeof(r_buf), "RW: %s", current_data.active_runways_summary);
+                printFitted(r_buf, 21);
+            } else {
+                printFitted("RW: Active Replay", 21);
+            }
+
+            // Row 2 (y = 29): Wind & Temperature
+            display.setCursor(0, 29);
+            if (current_data.weather.valid) {
+                char w_buf[24];
+                snprintf(w_buf, sizeof(w_buf), "Wind %s %dF", current_data.weather.wind, current_data.weather.temp_f);
+                printFitted(w_buf, 21);
+            } else {
+                printFitted("Wind: 270@11kt 59F", 21);
+            }
+
+            // Row 3 (y = 40): Pressure & Condition
+            display.setCursor(0, 40);
+            if (current_data.weather.valid) {
+                char p_buf[12];
+                strncpy(p_buf, current_data.weather.pressure, sizeof(p_buf) - 1);
+                p_buf[sizeof(p_buf) - 1] = '\0';
+                char* inhg = strstr(p_buf, " inHg");
+                if (inhg) *inhg = '\0';
+                char b_buf[24];
+                snprintf(b_buf, sizeof(b_buf), "%s\" | %s", p_buf, current_data.weather.condition);
+                printFitted(b_buf, 21);
+            } else {
+                printFitted("30.04\" | Clear", 21);
+            }
+
+            display.drawFastHLine(0, 51, SCREEN_WIDTH, SSD1306_WHITE);
+
+            // Row 4 (y = 54): Replay status footer
+            display.setCursor(0, 54);
+            char foot[24];
+            snprintf(foot, sizeof(foot), "Replay: %u queued", getReplayEventCount());
+            printFitted(foot, 21);
+        }
+#else
         // TOP YELLOW ZONE (Rows y = 0 to 15)
         display.setTextSize(1);
         display.setTextColor(SSD1306_WHITE);
@@ -530,11 +664,6 @@ void renderDisplayLoop() {
             strncpy(badge, "[NET DOWN]", sizeof(badge) - 1);
             badge[sizeof(badge) - 1] = '\0';
             is_warning = true;
-#if defined(BOARD_MODE_BLE)
-        } else if (isReplayBatchActive()) {
-            strncpy(badge, "[REPLAY]", sizeof(badge) - 1);
-            badge[sizeof(badge) - 1] = '\0';
-#endif
         } else if (current_data.weather.valid && current_data.weather.flight_category[0] != '\0') {
             snprintf(badge, sizeof(badge), "[%s]", current_data.weather.flight_category);
         } else {
@@ -542,9 +671,6 @@ void renderDisplayLoop() {
             badge[sizeof(badge) - 1] = '\0';
         }
 
-        // To GUARANTEE zero text collision / screen overflow:
-        // When a warning badge is active, shorten left title to "KMSP" (4 chars = 24px)
-        // instead of "KMSP AIRPORT" (12 chars = 72px).
         display.setCursor(2, 3);
         if (is_warning) {
             display.print(F("KMSP"));
@@ -552,20 +678,19 @@ void renderDisplayLoop() {
             display.print(F("KMSP AIRPORT"));
         }
 
-        // Dynamically right-align badge with 2px margin from right edge
         int badge_len = (int)strlen(badge);
         int badge_width = badge_len * 6;
         int badge_x = SCREEN_WIDTH - badge_width - 2;
-        int min_x = is_warning ? 32 : 78; // 24px (KMSP) + 8px gap
+        int min_x = is_warning ? 32 : 78;
         if (badge_x < min_x) {
             badge_x = min_x;
         }
         display.setCursor(badge_x, 3);
         display.print(badge);
-        display.drawFastHLine(0, 15, SCREEN_WIDTH, SSD1306_WHITE); // Yellow dividing line
+        display.drawFastHLine(0, 15, SCREEN_WIDTH, SSD1306_WHITE);
 
         // BOTTOM BLUE ZONE (Rows y = 16 to 63)
-        // Row 1 (y = 18): Runway Operational Roles (e.g. ARR 30R / DEP 30L)
+        // Row 1 (y = 18): Runway Operational Roles
         display.setCursor(0, 18);
         if (current_data.runway_roles_summary[0] != '\0') {
             printFitted(current_data.runway_roles_summary, 21);
@@ -577,7 +702,7 @@ void renderDisplayLoop() {
             printFitted("RW: Standby", 21);
         }
 
-        // Row 2 (y = 29): Wind & Temperature (e.g. Wind 270@11kt  59F)
+        // Row 2 (y = 29): Wind & Temperature
         display.setCursor(0, 29);
         if (current_data.weather.valid) {
             char w_buf[24];
@@ -587,7 +712,7 @@ void renderDisplayLoop() {
             printFitted("Wind: Polling METAR", 21);
         }
 
-        // Row 3 (y = 40): Pressure & Condition (e.g. 30.24" | Few)
+        // Row 3 (y = 40): Pressure & Condition
         display.setCursor(0, 40);
         if (current_data.weather.valid) {
             char p_buf[12];
@@ -596,7 +721,6 @@ void renderDisplayLoop() {
             char* inhg = strstr(p_buf, " inHg");
             if (inhg) *inhg = '\0';
 
-            // Compact condition labels so they easily fit 128px width
             const char* cond = current_data.weather.condition;
             if (strncmp(cond, "Few Clouds", 10) == 0) cond = "Few";
             else if (strncmp(cond, "Scattered Clouds", 16) == 0) cond = "Sct";
@@ -616,14 +740,9 @@ void renderDisplayLoop() {
         // Horizontal blue divider
         display.drawFastHLine(0, 51, SCREEN_WIDTH, SSD1306_WHITE);
 
-        // Row 4 (y = 54): Status Footer (strictly <= 21 chars, never clips)
+        // Row 4 (y = 54): Status Footer
         display.setCursor(0, 54);
         char foot[24];
-#if defined(BOARD_MODE_BLE)
-        if (isReplayBatchActive()) {
-            snprintf(foot, sizeof(foot), "Replay: %u queued", getReplayEventCount());
-        } else
-#endif
         if (current_data.rate_limited) {
             snprintf(foot, sizeof(foot), "OpenSky: Quota 429");
         } else if (!current_data.api_online) {
@@ -636,6 +755,7 @@ void renderDisplayLoop() {
             snprintf(foot, sizeof(foot), "Telemetry Ready");
         }
         printFitted(foot, 21);
+#endif
     }
 
     display.display();

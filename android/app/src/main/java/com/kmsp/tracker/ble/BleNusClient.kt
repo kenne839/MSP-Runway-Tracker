@@ -114,6 +114,7 @@ class BleNusClient(private val context: Context) {
         val connectLatch = CountDownLatch(1)
         val mtuLatch = CountDownLatch(1)
         val servicesDiscoveredLatch = CountDownLatch(1)
+        val cccdLatch = CountDownLatch(1)
         val ackLatch = CountDownLatch(1)
         val writeSuccess = AtomicBoolean(false)
         var currentWriteLatch: CountDownLatch? = null
@@ -194,6 +195,15 @@ class BleNusClient(private val context: Context) {
                 servicesDiscoveredLatch.countDown()
             }
 
+            override fun onDescriptorWrite(
+                gatt: BluetoothGatt?,
+                descriptor: BluetoothGattDescriptor?,
+                status: Int
+            ) {
+                Log.i(TAG, "CCCD descriptor write finished with status $status")
+                cccdLatch.countDown()
+            }
+
             override fun onCharacteristicWrite(
                 gatt: BluetoothGatt?,
                 characteristic: BluetoothGattCharacteristic?,
@@ -249,6 +259,9 @@ class BleNusClient(private val context: Context) {
             if (!servicesDiscoveredLatch.await(5, TimeUnit.SECONDS) || rxCharacteristic == null) {
                 return Result.failure(IllegalStateException("GATT service discovery timed out or NUS RX characteristic missing"))
             }
+
+            // Wait for CCCD notification registration to settle before writing characteristics
+            cccdLatch.await(1500, TimeUnit.MILLISECONDS)
 
             val charac = rxCharacteristic ?: return Result.failure(IllegalStateException("NUS RX Characteristic not found"))
 

@@ -18,6 +18,12 @@ struct RunwayLockGuard {
 
 static CRGB leds[NUM_LEDS];
 static bool has_had_event = true; // Default true so the prevailing runway (30R) slowly strobes from power-on
+static uint32_t s_ingest_flash_until = 0;
+
+void triggerBatchIngestedFeedback() {
+    RunwayLockGuard lock;
+    s_ingest_flash_until = millis() + 800;
+}
 
 // Precomputed normalized physical distance along runway centerline (0.0f to 1.0f)
 // Derived directly from the Altium Pick and Place CAD coordinates.
@@ -295,6 +301,19 @@ bool renderRunwayAnimations() {
     last_frame_time = now;
 
     RunwayLockGuard lock;
+
+    if (now < s_ingest_flash_until) {
+        uint32_t rem = s_ingest_flash_until - now;
+        // Two distinct green flashes: (800..600 ON), (600..450 OFF), (450..250 ON), (250..0 OFF)
+        bool flash_on = (rem > 600) || (rem < 450 && rem > 250);
+#if defined(BOARD_MODE_DEVKIT)
+        setDevKitRgb(0, flash_on ? 180 : 0, 0);
+#else
+        fill_solid(leds, NUM_LEDS, flash_on ? CRGB(0, 180, 0) : CRGB::Black);
+        FastLED.show();
+#endif
+        return true;
+    }
 
 #if defined(BOARD_MODE_DEVKIT)
     // DevKit Test Mode:
