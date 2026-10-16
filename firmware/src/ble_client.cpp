@@ -36,21 +36,33 @@ static char s_ready_buffer[BLE_RX_BUFFER_SIZE];
 static size_t s_ready_len = 0;
 static volatile bool s_payload_available = false;
 
-class ServerCallbacks : public BLEServerCallbacks {
-    void onConnect(BLEServer* server) override {
-        device_connected = true;
-        Serial.println(F("[BLE] Client connected."));
-    }
-
-    void onDisconnect(BLEServer* server) override {
-        device_connected = false;
-        Serial.println(F("[BLE] Client disconnected."));
-    }
-};
-
 static int s_brace_depth = 0;
 static bool s_in_string = false;
 static bool s_escape = false;
+
+class ServerCallbacks : public BLEServerCallbacks {
+    void onConnect(BLEServer* server) override {
+        BleLockGuard lock;
+        device_connected = true;
+        s_rx_head = 0;
+        s_brace_depth = 0;
+        s_in_string = false;
+        s_escape = false;
+        s_payload_available = false;
+        Serial.println(F("[BLE] Client connected. Stream parser reset to clean state."));
+    }
+
+    void onDisconnect(BLEServer* server) override {
+        BleLockGuard lock;
+        device_connected = false;
+        s_rx_head = 0;
+        s_brace_depth = 0;
+        s_in_string = false;
+        s_escape = false;
+        s_payload_available = false;
+        Serial.println(F("[BLE] Client disconnected. Stream parser reset."));
+    }
+};
 
 static void feedRxChar(char c) {
     if (s_rx_head < (BLE_RX_BUFFER_SIZE - 1)) {
@@ -86,18 +98,27 @@ static void feedRxChar(char c) {
                 s_brace_depth = 0;
                 s_in_string = false;
                 s_escape = false;
+                Serial.printf("[BLE] Complete frame detected on brace depth 0: %u bytes!\n", (unsigned int)s_ready_len);
                 return;
             }
         }
     }
 
-    // Delimitation for newline when outside of JSON string or braces
-    if ((c == '\n' || c == '\r') && s_brace_depth == 0) {
+    // Delimitation for newline when outside of JSON string or braces, or newline fallback
+    if (c == '\n' || c == '\r') {
         if (!s_payload_available && s_rx_head > 1) {
-            s_rx_buffer[s_rx_head - 1] = '\0';
-            memcpy(s_ready_buffer, s_rx_buffer, s_rx_head);
-            s_ready_len = s_rx_head - 1;
-            s_payload_available = true;
+            // Trim leading/trailing whitespace and check for valid JSON wrapper
+            size_t start = 0;
+            while (start < s_rx_head && (s_rx_buffer[start] == ' ' || s_rx_buffer[start] == '\n' || s_rx_buffer[start] == '\r')) start++;
+            size_t end = s_rx_head;
+            while (end > start && (s_rx_buffer[end - 1] == ' ' || s_rx_buffer[end - 1] == '\n' || s_rx_buffer[end - 1] == '\r')) end--;
+            if ((end - start) > 1 && s_rx_buffer[start] == '{' && s_rx_buffer[end - 1] == '}') {
+                s_rx_buffer[end] = '\0';
+                memcpy(s_ready_buffer, &s_rx_buffer[start], (end - start) + 1);
+                s_ready_len = end - start;
+                s_payload_available = true;
+                Serial.printf("[BLE] Complete frame detected on newline delimiter: %u bytes!\n", (unsigned int)s_ready_len);
+            }
         }
         s_rx_head = 0;
         s_brace_depth = 0;
@@ -106,16 +127,28 @@ static void feedRxChar(char c) {
     }
 }
 
+static void handleIncomingBytes(const uint8_t* data, size_t len) {
+    if (data == nullptr || len == 0) return;
+    BleLockGuard lock;
+    for (size_t i = 0; i < len; i++) {
+        feedRxChar((char)data[i]);
+    }
+    Serial.printf("[BLE RX] Chunk: %u bytes (accum=%u, depth=%d)\n", (unsigned int)len, (unsigned int)s_rx_head, s_brace_depth);
+}
+
 class RxCallbacks : public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic* pCharacteristic, esp_ble_gatts_cb_param_t* param) override {
+        if (param != nullptr && param->write.len > 0) {
+            handleIncomingBytes(param->write.value, param->write.len);
+        } else {
+            std::string rxValue = pCharacteristic->getValue();
+            handleIncomingBytes((const uint8_t*)rxValue.data(), rxValue.length());
+        }
+    }
+
     void onWrite(BLECharacteristic* pCharacteristic) override {
         std::string rxValue = pCharacteristic->getValue();
-        size_t len = rxValue.length();
-        if (len == 0) return;
-
-        BleLockGuard lock;
-        for (size_t i = 0; i < len; i++) {
-            feedRxChar(rxValue[i]);
-        }
+        handleIncomingBytes((const uint8_t*)rxValue.data(), rxValue.length());
     }
 };
 
@@ -284,9 +317,11 @@ bool pollBleTelemetry(DisplayTelemetryData& out_telemetry) {
 
     {
         BleLockGuard lock;
-        // Also support fallback USB Serial input
-        while (Serial.available()) {
-            feedRxChar((char)Serial.read());
+        // Only accept fallback USB Serial input when no BLE client is active
+        if (!device_connected) {
+            while (Serial.available()) {
+                feedRxChar((char)Serial.read());
+            }
         }
 
         if (s_payload_available) {

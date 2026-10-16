@@ -58,7 +58,6 @@ void setup() {
     // 3. Initialize Theme Manager & WS2812B LEDs
     initThemeManager();
     initLeds();
-    startLedAnimationTask();
 
     // 4. Initialize Communications
 #if defined(BOARD_MODE_BLE)
@@ -68,6 +67,9 @@ void setup() {
     initNetwork();
     initTelnetServer();
 #endif
+
+    // 5. Start Background LED Animation Task
+    startLedAnimationTask();
 
     memset(&telemetry_data, 0, sizeof(telemetry_data));
     telemetry_data.flight_count = 0;
@@ -199,4 +201,7 @@ void loop() {
 #endif
         }
     }
+
+    // Yield CPU to FreeRTOS IDLE task on Core 1 to prevent Task Watchdog (TG1WDT) timeouts
+    delay(5);
 }

@@ -1,0 +1,48 @@
+import asyncio
+import urllib.request
+import json
+from bleak import BleakScanner, BleakClient
+
+async def main():
+    print("[HTTP] Fetching batch from Pi (192.168.0.213:8080)...")
+    raw = urllib.request.urlopen('http://192.168.0.213:8080/api/v1/office_replay_batch', timeout=5).read().decode('utf-8')
+    data_dict = json.loads(raw)
+    minified = json.dumps(data_dict, separators=(',', ':'))
+    print(f"[HTTP] Fetched {len(raw)} bytes (minified: {len(minified)} bytes, {data_dict.get('operations_count')} ops)")
+
+    print("[BLE] Scanning for KMSP-Runway-Office...")
+    device = await BleakScanner.find_device_by_name('KMSP-Runway-Office', timeout=6.0)
+    if not device:
+        print("[BLE] ERROR: KMSP-Runway-Office not found!")
+        return
+
+    print(f"[BLE] Found {device.name} ({device.address}). Connecting...")
+    async with BleakClient(device) as client:
+        print("[BLE] Connected! Subscribing to NUS TX notifications...")
+        received_ack = []
+        def on_tx_notify(sender, data):
+            msg = data.decode('utf-8', errors='ignore')
+            print(f"\n[BLE << APPLICATION ACK RECEIVED] {msg.strip()}\n")
+            received_ack.append(msg)
+
+        await client.start_notify('6E400003-B5A3-F393-E0A9-E50E24DCCA9E', on_tx_notify)
+
+        payload_bytes = (minified.strip() + '\n').encode('utf-8')
+        print(f"[BLE >> STREAM] Sending {len(payload_bytes)} bytes over NUS RX in 240B chunks...")
+        for i in range(0, len(payload_bytes), 240):
+            chunk = payload_bytes[i:i+240]
+            await client.write_gatt_char('6E400002-B5A3-F393-E0A9-E50E24DCCA9E', chunk, response=True)
+            print(f"  -> Sent {len(chunk)} bytes (offset {i}/{len(payload_bytes)})")
+        
+        print("[BLE >> STREAM] Completed all writes! Awaiting Application ACK notification (10s)...")
+        for _ in range(100):
+            if received_ack:
+                break
+            await asyncio.sleep(0.1)
+
+        if not received_ack:
+            print("[BLE] TIMEOUT waiting for Application ACK!")
+        else:
+            print(f"[BLE] SUCCESS! ACK: {received_ack[0]}")
+
+asyncio.run(main())

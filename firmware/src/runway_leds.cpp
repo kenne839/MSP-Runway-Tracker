@@ -102,13 +102,11 @@ static void setDevKitRgb(uint8_t r, uint8_t g, uint8_t b) {
     uint8_t sg = (uint8_t)(((uint16_t)g * mb + 127) / 255);
     uint8_t sb = (uint8_t)(((uint16_t)b * mb + 127) / 255);
 
-    // Native hardware WS2812 driver for ESP32-S3:
-    // GPIO 48 (DevKitC-1 v1.0), GPIO 38 (DevKitC-1 v1.1 / clones), GPIO 21 (Zero/Mini)
-    neopixelWrite(48, sr, sg, sb);
-    neopixelWrite(38, sr, sg, sb);
-    neopixelWrite(21, sr, sg, sb);
+    // Native hardware WS2812 driver for ESP32-S3 DevKit (GPIO 48)
 #ifdef RGB_BUILTIN
     neopixelWrite(RGB_BUILTIN, sr, sg, sb);
+#else
+    neopixelWrite(48, sr, sg, sb);
 #endif
 
     leds[0] = CRGB(sr, sg, sb);
@@ -518,8 +516,7 @@ void showConnectionStatusLed(bool connected) {
 }
 
 static void ledAnimationTask(void* pvParameters) {
-    TickType_t xLastWakeTime = xTaskGetTickCount();
-    const TickType_t xFrequency = pdMS_TO_TICKS(14); // ~71.4 FPS target
+    const TickType_t xFrequency = pdMS_TO_TICKS(25); // ~40 FPS target (silky smooth, zero CPU starvation)
 
     for (;;) {
         bool rendered = renderRunwayAnimations();
@@ -528,7 +525,7 @@ static void ledAnimationTask(void* pvParameters) {
             recordFrameRendered();
         }
 #endif
-        vTaskDelayUntil(&xLastWakeTime, xFrequency);
+        vTaskDelay(xFrequency);
     }
 }
 
@@ -542,7 +539,7 @@ void startLedAnimationTask() {
             "LED_Anim_Task",
             4096,
             nullptr,
-            2, // Priority 2
+            1, // Priority 1 (cooperative with loopTask)
             &led_task_handle,
             1  // Core 1
         );

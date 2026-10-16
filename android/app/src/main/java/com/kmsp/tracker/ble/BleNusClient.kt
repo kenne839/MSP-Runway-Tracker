@@ -244,7 +244,8 @@ class BleNusClient(private val context: Context) {
                 characteristic: BluetoothGattCharacteristic?
             ) {
                 if (characteristic?.uuid == NUS_TX_UUID) {
-                    val ackStr = characteristic.getStringValue(0)?.trim() ?: ""
+                    val raw = characteristic.value
+                    val ackStr = if (raw != null) String(raw, Charsets.UTF_8).trim() else (characteristic.getStringValue(0)?.trim() ?: "")
                     Log.i(TAG, "Application ACK received from desk board (legacy): $ackStr")
                     appAckResponse = ackStr
                     ackLatch.countDown()
@@ -326,7 +327,7 @@ class BleNusClient(private val context: Context) {
 
             // 4. Closed-loop verification: Await Application ACK notification from Desk Board firmware
             onProgress?.invoke("Payload sent ($bytesSent B). Awaiting firmware Application ACK...")
-            val ackReceived = ackLatch.await(5, TimeUnit.SECONDS)
+            val ackReceived = ackLatch.await(10, TimeUnit.SECONDS)
             if (!ackReceived) {
                 Log.w(TAG, "Desk board application ACK timed out")
                 return Result.failure(IllegalStateException("Payload sent ($bytesSent B), but Desk Board application ACK timed out."))
