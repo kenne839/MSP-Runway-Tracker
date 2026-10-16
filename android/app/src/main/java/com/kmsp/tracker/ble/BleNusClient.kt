@@ -11,12 +11,13 @@ import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.bluetooth.BluetoothStatusCodes
 import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.os.Build
+import android.os.ParcelUuid
 import android.util.Log
-import org.json.JSONObject
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -54,16 +55,54 @@ class BleNusClient(private val context: Context) {
             return Result.failure(IllegalStateException("Bluetooth is disabled or unavailable on this device"))
         }
 
-        val scanner = adapter.bluetoothLeScanner
-            ?: return Result.failure(IllegalStateException("BLE Scanner unavailable"))
+        // Clean JSON: Strip internal newlines so the only '\n' is the end-of-frame delimiter
+        val cleanJson = payloadJson.replace("\r", "").replace("\n", "").trim()
+        if (!cleanJson.startsWith("{") || !cleanJson.endsWith("}")) {
+            Log.e(TAG, "Cannot transmit invalid non-JSON payload: ${cleanJson.take(60)}")
+            return Result.failure(IllegalStateException("Cannot transmit invalid non-JSON payload to desk board"))
+        }
+        val fullPayload = (cleanJson + "\n").toByteArray(Charsets.UTF_8)
 
-        Log.i(TAG, "Scanning for KMSP-Runway-Office peripheral...")
-        onProgress?.invoke("Scanning for KMSP-Runway-Office BLE peripheral...")
+        val prefs = context.getSharedPreferences("kmsp_prefs", Context.MODE_PRIVATE)
+        val savedMac = prefs.getString("last_device_mac", null)?.trim()
+        val savedName = prefs.getString("last_device_name", "KMSP-Runway-Office") ?: "KMSP-Runway-Office"
 
-        var targetDevice: BluetoothDevice? = null
-        val scanLatch = CountDownLatch(1)
+        // --- Fast-Path 1: Direct MAC Connection ---
+        // If we already know the target's MAC address from a previous connection, connect directly.
+        // This avoids Android background scan throttling/quotas and connects in ~200-500ms even with screen locked.
+        if (!savedMac.isNullOrEmpty() && BluetoothAdapter.checkBluetoothAddress(savedMac)) {
+            Log.i(TAG, "Attempting direct GATT connection to saved device: $savedMac ($savedName)...")
+            onProgress?.invoke("Connecting directly to desk board ($savedMac)...")
+            val candidate = adapter.getRemoteDevice(savedMac)
+            val directResult = executeGattSession(candidate, fullPayload, onProgress, connectTimeoutMs = 4500)
+            if (directResult.isSuccess) {
+                Log.i(TAG, "Direct GATT connection and transmission succeeded!")
+                return directResult
+            }
+            Log.w(TAG, "Direct GATT connection to $savedMac timed out or failed: ${directResult.exceptionOrNull()?.message}. Falling back to filtered LE scan.")
+        }
 
-        val scanCallback = object : ScanCallback() {
+        // --- Fallback Path 2: Hardware-Filtered BLE Scan ---
+        // Android OS strictly requires at least one ScanFilter to permit scanning while screen is locked or in background.
+        onProgress?.invoke("Scanning for KMSP-Runway-Office desk board...")
+        val scannedDevice = scanForPeripheral(adapter, savedMac, timeoutSec = 10)
+            ?: return Result.failure(IllegalStateException("Peripheral 'KMSP-Runway-Office' not found. Ensure ESP32 desk board is powered on nearby."))
+
+        onProgress?.invoke("Found ${scannedDevice.name ?: "ESP32"} (${scannedDevice.address})! Connecting...")
+        return executeGattSession(scannedDevice, fullPayload, onProgress, connectTimeoutMs = 7000)
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun scanForPeripheral(
+        adapter: BluetoothAdapter,
+        savedMac: String?,
+        timeoutSec: Long = 10
+    ): BluetoothDevice? {
+        val scanner = adapter.bluetoothLeScanner ?: return null
+        var foundDevice: BluetoothDevice? = null
+        val latch = CountDownLatch(1)
+
+        val callback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult?) {
                 val device = result?.device ?: return
                 val record = result.scanRecord
@@ -71,53 +110,69 @@ class BleNusClient(private val context: Context) {
                 val serviceUuids = record?.serviceUuids
                 val hasNusUuid = serviceUuids?.any { it.uuid == NUS_SERVICE_UUID } == true
                 val matchesName = name != null && name.contains("KMSP-Runway", ignoreCase = true)
+                val matchesMac = !savedMac.isNullOrEmpty() && device.address.equals(savedMac, ignoreCase = true)
 
                 Log.d(TAG, "Scanned BLE device: name='$name', addr=${device.address}, rssi=${result.rssi}")
 
-                if (matchesName || hasNusUuid) {
-                    Log.i(TAG, "Found target peripheral: '$name' (${device.address}, RSSI: ${result.rssi})")
-                    targetDevice = device
+                if (matchesMac || matchesName || hasNusUuid) {
+                    Log.i(TAG, "Discovered target peripheral: '${name ?: "KMSP-Runway-Office"}' (${device.address}, RSSI: ${result.rssi})")
+                    foundDevice = device
                     try {
                         scanner.stopScan(this)
                     } catch (e: Exception) {
-                        Log.w(TAG, "Error stopping scan in callback: ${e.message}")
+                        Log.w(TAG, "Error stopping scan: ${e.message}")
                     }
-                    scanLatch.countDown()
+                    latch.countDown()
                 }
             }
 
             override fun onScanFailed(errorCode: Int) {
                 Log.w(TAG, "BLE scan failed with error code $errorCode")
-                scanLatch.countDown()
+                latch.countDown()
             }
         }
 
-        val settings = ScanSettings.Builder()
+        val filters = ArrayList<ScanFilter>()
+        if (!savedMac.isNullOrEmpty() && BluetoothAdapter.checkBluetoothAddress(savedMac)) {
+            filters.add(ScanFilter.Builder().setDeviceAddress(savedMac).build())
+        }
+        filters.add(ScanFilter.Builder().setServiceUuid(ParcelUuid(NUS_SERVICE_UUID)).build())
+        filters.add(ScanFilter.Builder().setDeviceName("KMSP-Runway-Office").build())
+
+        val settingsBuilder = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
             .setReportDelay(0)
-            .build()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            settingsBuilder.setMatchMode(ScanSettings.MATCH_MODE_AGGRESSIVE)
+            settingsBuilder.setNumOfMatches(ScanSettings.MATCH_NUM_ONE_ADVERTISEMENT)
+            settingsBuilder.setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
+        }
+        val settings = settingsBuilder.build()
 
-        // 1. Scan with up to 8-second discovery timeout (pass null filters for universal OEM compatibility)
         try {
-            scanner.startScan(null, settings, scanCallback)
-            scanLatch.await(8, TimeUnit.SECONDS)
-        } catch (e: SecurityException) {
-            return Result.failure(IllegalStateException("Bluetooth scan permission missing: ${e.message}"))
+            Log.i(TAG, "Starting filtered background-compatible BLE scan (${filters.size} filters, timeout=${timeoutSec}s)...")
+            scanner.startScan(filters, settings, callback)
+            latch.await(timeoutSec, TimeUnit.SECONDS)
         } catch (e: Exception) {
             Log.w(TAG, "Exception during startScan: ${e.message}")
         } finally {
             try {
-                scanner.stopScan(scanCallback)
+                scanner.stopScan(callback)
             } catch (e: Exception) {
-                // Ignore if already stopped
+                // Ignore
             }
         }
 
-        val device = targetDevice ?: return Result.failure(IllegalStateException("Peripheral 'KMSP-Runway-Office' not found. Ensure ESP32 desk board is powered on nearby."))
+        return foundDevice
+    }
 
-        onProgress?.invoke("Found ${device.name ?: "ESP32"} (${device.address})! Connecting...")
-
-        // 2. Connect GATT directly (autoConnect = false, TRANSPORT_LE)
+    @SuppressLint("MissingPermission")
+    private fun executeGattSession(
+        device: BluetoothDevice,
+        fullPayload: ByteArray,
+        onProgress: ((String) -> Unit)?,
+        connectTimeoutMs: Long = 6000
+    ): Result<BleTransferResult> {
         val connectLatch = CountDownLatch(1)
         val mtuLatch = CountDownLatch(1)
         val servicesDiscoveredLatch = CountDownLatch(1)
@@ -257,8 +312,8 @@ class BleNusClient(private val context: Context) {
             val gatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
             activeGatt = gatt
 
-            if (!connectLatch.await(7, TimeUnit.SECONDS) || !isConnected) {
-                return Result.failure(IllegalStateException("GATT connection failed or timed out (7s)"))
+            if (!connectLatch.await(connectTimeoutMs, TimeUnit.MILLISECONDS) || !isConnected) {
+                return Result.failure(IllegalStateException("GATT connection to ${device.address} failed or timed out (${connectTimeoutMs}ms)"))
             }
 
             onProgress?.invoke("Connected! Negotiating MTU & discovering services...")
@@ -273,14 +328,6 @@ class BleNusClient(private val context: Context) {
 
             val charac = rxCharacteristic ?: return Result.failure(IllegalStateException("NUS RX Characteristic not found"))
 
-            // 3. Clean JSON: Strip internal newlines so the only '\n' is the end-of-frame delimiter.
-            // Avoid Android JSONObject DOM re-serialization which reorders keys and mutates structures.
-            val cleanJson = payloadJson.replace("\r", "").replace("\n", "").trim()
-            if (!cleanJson.startsWith("{") || !cleanJson.endsWith("}")) {
-                Log.e(TAG, "Cannot transmit invalid non-JSON payload: ${cleanJson.take(60)}")
-                return Result.failure(IllegalStateException("Cannot transmit invalid non-JSON payload to desk board"))
-            }
-            val fullPayload = (cleanJson + "\n").toByteArray(Charsets.UTF_8)
             val chunkSize = minOf((negotiatedMtu - 3).coerceAtLeast(20), 240)
             var bytesSent = 0
             val totalBytes = fullPayload.size
@@ -325,7 +372,7 @@ class BleNusClient(private val context: Context) {
                 onProgress?.invoke("Streaming payload: $bytesSent / $totalBytes bytes")
             }
 
-            // 4. Closed-loop verification: Await Application ACK notification from Desk Board firmware
+            // Closed-loop verification: Await Application ACK notification from Desk Board firmware
             onProgress?.invoke("Payload sent ($bytesSent B). Awaiting firmware Application ACK...")
             val ackReceived = ackLatch.await(10, TimeUnit.SECONDS)
             if (!ackReceived) {
@@ -348,7 +395,6 @@ class BleNusClient(private val context: Context) {
         } catch (e: Exception) {
             return Result.failure(e)
         } finally {
-            // 5. Deterministic teardown: disconnect and close
             try {
                 activeGatt?.disconnect()
                 Thread.sleep(150)

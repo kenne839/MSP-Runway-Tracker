@@ -42,11 +42,11 @@ class ReplaySyncService : Service() {
             startForeground(NOTIFICATION_ID, notification)
         }
 
-        // 2. Acquire Partial WakeLock with mandatory 15-second hard timeout
+        // 2. Acquire Partial WakeLock with mandatory 60-second safety timeout (released immediately in finally)
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "kmsp:sync_worker_lock").apply {
             setReferenceCounted(false)
-            acquire(15000L) // 15s max ceiling
+            acquire(60000L) // 60s max safety ceiling
         }
 
         Log.i(TAG, "ReplaySyncService started. WakeLock acquired.")

@@ -1,13 +1,15 @@
 package com.kmsp.tracker.ui
 
-import android.annotation.SuppressLint
+import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
+import android.os.ParcelUuid
 import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -115,7 +117,7 @@ fun ReplayDashboardScreen() {
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "App Build: v1.0.8 (Build 9)",
+                    text = "App Build: v1.0.9 (Build 10)",
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold
@@ -356,8 +358,11 @@ private fun testBleDiscovery(context: Context): String {
         return "FAILED: Bluetooth is disabled on phone."
     }
 
+    val prefs = context.getSharedPreferences("kmsp_prefs", Context.MODE_PRIVATE)
+    val savedMac = prefs.getString("last_device_mac", null)?.trim()
+
     val scanner = adapter.bluetoothLeScanner ?: return "FAILED: BLE Scanner unavailable."
-    var foundDetails = "FAILED: Peripheral 'KMSP-Runway-Office' not found within 6s."
+    var foundDetails = "FAILED: Peripheral 'KMSP-Runway-Office' not found within 8s."
     val latch = CountDownLatch(1)
 
     val callback = object : ScanCallback() {
@@ -368,9 +373,11 @@ private fun testBleDiscovery(context: Context): String {
             val serviceUuids = record?.serviceUuids
             val hasNusUuid = serviceUuids?.any { it.uuid == NUS_SERVICE_UUID } == true
             val matchesName = name != null && name.contains("KMSP-Runway", ignoreCase = true)
+            val matchesMac = !savedMac.isNullOrEmpty() && device.address.equals(savedMac, ignoreCase = true)
 
-            if (matchesName || hasNusUuid) {
-                foundDetails = "SUCCESS! Found '$name'\nMAC: ${device.address} | RSSI: ${result.rssi} dBm"
+            if (matchesName || hasNusUuid || matchesMac) {
+                val displayName = if (!name.isNullOrBlank()) name else "KMSP-Runway-Office"
+                foundDetails = "SUCCESS! Found '$displayName'\nMAC: ${device.address} | RSSI: ${result.rssi} dBm"
                 try {
                     scanner.stopScan(this)
                 } catch (e: Exception) {
@@ -386,13 +393,20 @@ private fun testBleDiscovery(context: Context): String {
         }
     }
 
+    val filters = ArrayList<ScanFilter>()
+    if (!savedMac.isNullOrEmpty() && BluetoothAdapter.checkBluetoothAddress(savedMac)) {
+        filters.add(ScanFilter.Builder().setDeviceAddress(savedMac).build())
+    }
+    filters.add(ScanFilter.Builder().setServiceUuid(ParcelUuid(NUS_SERVICE_UUID)).build())
+    filters.add(ScanFilter.Builder().setDeviceName("KMSP-Runway-Office").build())
+
     val settings = ScanSettings.Builder()
         .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
         .build()
 
     try {
-        scanner.startScan(null, settings, callback)
-        latch.await(6, TimeUnit.SECONDS)
+        scanner.startScan(filters, settings, callback)
+        latch.await(8, TimeUnit.SECONDS)
     } catch (e: SecurityException) {
         return "FAILED: Missing Bluetooth permission (${e.message})"
     } catch (e: Exception) {
