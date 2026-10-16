@@ -34,7 +34,12 @@ data class BleTransferResult(
     val bytesSent: Int,
     val deviceName: String,
     val deviceAddress: String,
-    val appAck: String
+    val appAck: String,
+    val connectionMethod: String = "DIRECT_MAC",
+    val connectDurationMs: Long = 0,
+    val streamDurationMs: Long = 0,
+    val ackLatencyMs: Long = 0,
+    val negotiatedMtu: Int = 23
 )
 
 class BleNusClient(private val context: Context) {
@@ -74,7 +79,7 @@ class BleNusClient(private val context: Context) {
             Log.i(TAG, "Attempting direct GATT connection to saved device: $savedMac ($savedName)...")
             onProgress?.invoke("Connecting directly to desk board ($savedMac)...")
             val candidate = adapter.getRemoteDevice(savedMac)
-            val directResult = executeGattSession(candidate, fullPayload, onProgress, connectTimeoutMs = 4500)
+            val directResult = executeGattSession(candidate, fullPayload, onProgress, connectTimeoutMs = 4500, connectionMethod = "DIRECT_MAC")
             if (directResult.isSuccess) {
                 Log.i(TAG, "Direct GATT connection and transmission succeeded!")
                 return directResult
@@ -89,7 +94,7 @@ class BleNusClient(private val context: Context) {
             ?: return Result.failure(IllegalStateException("Peripheral 'KMSP-Runway-Office' not found. Ensure ESP32 desk board is powered on nearby."))
 
         onProgress?.invoke("Found ${scannedDevice.name ?: "ESP32"} (${scannedDevice.address})! Connecting...")
-        return executeGattSession(scannedDevice, fullPayload, onProgress, connectTimeoutMs = 7000)
+        return executeGattSession(scannedDevice, fullPayload, onProgress, connectTimeoutMs = 7000, connectionMethod = "FILTERED_SCAN")
     }
 
     @SuppressLint("MissingPermission")
@@ -171,8 +176,13 @@ class BleNusClient(private val context: Context) {
         device: BluetoothDevice,
         fullPayload: ByteArray,
         onProgress: ((String) -> Unit)?,
-        connectTimeoutMs: Long = 6000
+        connectTimeoutMs: Long = 6000,
+        connectionMethod: String = "DIRECT_MAC"
     ): Result<BleTransferResult> {
+        val sessionStartTime = System.currentTimeMillis()
+        var connectDurationMs = 0L
+        var streamDurationMs = 0L
+        var ackLatencyMs = 0L
         val connectLatch = CountDownLatch(1)
         val mtuLatch = CountDownLatch(1)
         val servicesDiscoveredLatch = CountDownLatch(1)
@@ -315,6 +325,7 @@ class BleNusClient(private val context: Context) {
             if (!connectLatch.await(connectTimeoutMs, TimeUnit.MILLISECONDS) || !isConnected) {
                 return Result.failure(IllegalStateException("GATT connection to ${device.address} failed or timed out (${connectTimeoutMs}ms)"))
             }
+            connectDurationMs = System.currentTimeMillis() - sessionStartTime
 
             onProgress?.invoke("Connected! Negotiating MTU & discovering services...")
             mtuLatch.await(2, TimeUnit.SECONDS)
@@ -334,6 +345,7 @@ class BleNusClient(private val context: Context) {
 
             Log.i(TAG, "Streaming $totalBytes bytes in chunks of $chunkSize...")
             onProgress?.invoke("Streaming $totalBytes bytes to desk board...")
+            val streamStartTime = System.currentTimeMillis()
 
             for (i in fullPayload.indices step chunkSize) {
                 val end = minOf(i + chunkSize, totalBytes)
@@ -371,10 +383,14 @@ class BleNusClient(private val context: Context) {
                 bytesSent += chunk.size
                 onProgress?.invoke("Streaming payload: $bytesSent / $totalBytes bytes")
             }
+            streamDurationMs = System.currentTimeMillis() - streamStartTime
 
             // Closed-loop verification: Await Application ACK notification from Desk Board firmware
             onProgress?.invoke("Payload sent ($bytesSent B). Awaiting firmware Application ACK...")
+            val ackStartTime = System.currentTimeMillis()
             val ackReceived = ackLatch.await(10, TimeUnit.SECONDS)
+            ackLatencyMs = System.currentTimeMillis() - ackStartTime
+
             if (!ackReceived) {
                 Log.w(TAG, "Desk board application ACK timed out")
                 return Result.failure(IllegalStateException("Payload sent ($bytesSent B), but Desk Board application ACK timed out."))
@@ -388,7 +404,17 @@ class BleNusClient(private val context: Context) {
             Log.i(TAG, "Closed-loop verification successful: $appAckResponse")
             val targetName = device.name ?: "KMSP-Runway-Office"
             onProgress?.invoke("SUCCESS: Confirmed by $targetName ($appAckResponse)!")
-            return Result.success(BleTransferResult(bytesSent, targetName, device.address, appAckResponse))
+            return Result.success(BleTransferResult(
+                bytesSent = bytesSent,
+                deviceName = targetName,
+                deviceAddress = device.address,
+                appAck = appAckResponse,
+                connectionMethod = connectionMethod,
+                connectDurationMs = connectDurationMs,
+                streamDurationMs = streamDurationMs,
+                ackLatencyMs = ackLatencyMs,
+                negotiatedMtu = negotiatedMtu
+            ))
 
         } catch (e: SecurityException) {
             return Result.failure(IllegalStateException("Bluetooth permission error during transfer: ${e.message}"))

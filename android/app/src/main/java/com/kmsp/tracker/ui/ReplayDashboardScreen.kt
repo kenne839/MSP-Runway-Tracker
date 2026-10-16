@@ -7,13 +7,18 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
 import android.os.ParcelUuid
 import android.widget.Toast
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,10 +26,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kmsp.tracker.ble.NUS_SERVICE_UUID
+import com.kmsp.tracker.diagnostics.DiagnosticsRepository
+import com.kmsp.tracker.diagnostics.FlightOpSummary
+import com.kmsp.tracker.diagnostics.SyncDiagnosticEntry
 import com.kmsp.tracker.net.ReplayApiClient
 import com.kmsp.tracker.presence.PresenceEngine
 import com.kmsp.tracker.presence.SyncMode
@@ -69,6 +78,10 @@ fun ReplayDashboardScreen() {
     var lastDeviceMac by remember { mutableStateOf(prefs.getString("last_device_mac", "") ?: "") }
     var lastAckResponse by remember { mutableStateOf(prefs.getString("last_ack_response", "") ?: "") }
 
+    // Diagnostics Session & Log states
+    var diagnosticEntries by remember { mutableStateOf(DiagnosticsRepository.getEntries(context)) }
+    var sessionSummary by remember { mutableStateOf(DiagnosticsRepository.getSessionSummary(context)) }
+
     DisposableEffect(prefs) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { sp, key ->
             when (key) {
@@ -81,9 +94,16 @@ fun ReplayDashboardScreen() {
                 "sync_mode" -> selectedMode = PresenceEngine.getMode()
             }
         }
+        val diagListener = {
+            diagnosticEntries = DiagnosticsRepository.getEntries(context)
+            sessionSummary = DiagnosticsRepository.getSessionSummary(context)
+        }
         prefs.registerOnSharedPreferenceChangeListener(listener)
+        DiagnosticsRepository.registerListener(diagListener)
+
         onDispose {
             prefs.unregisterOnSharedPreferenceChangeListener(listener)
+            DiagnosticsRepository.unregisterListener(diagListener)
         }
     }
 
@@ -106,6 +126,7 @@ fun ReplayDashboardScreen() {
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // App Header
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -118,7 +139,7 @@ fun ReplayDashboardScreen() {
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "App Build: v1.0.9 (Build 10)",
+                    text = "App Build: v1.1.0 (Build 11) - Diagnostic Edition",
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold
@@ -126,90 +147,122 @@ fun ReplayDashboardScreen() {
             }
         }
 
-        // Presence / Mode Selector Card
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(text = "Geofencing & Sync Policy", fontWeight = FontWeight.SemiBold)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(
-                        selected = (selectedMode == SyncMode.HOME_TEST),
-                        onClick = {
-                            selectedMode = SyncMode.HOME_TEST
-                            PresenceEngine.setMode(SyncMode.HOME_TEST, save = true, context = context)
-                        }
-                    )
-                    Text("Home Test Mode (24/7 uninhibited)")
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(
-                        selected = (selectedMode == SyncMode.OFFICE_PROD),
-                        onClick = {
-                            selectedMode = SyncMode.OFFICE_PROD
-                            PresenceEngine.setMode(SyncMode.OFFICE_PROD, save = true, context = context)
-                        }
-                    )
-                    Text("Office Mode (Work Hours + Ambient Wi-Fi)")
-                }
-            }
-        }
-
-        // Live Status Card
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(text = "Sync Telemetry Status", fontWeight = FontWeight.SemiBold)
-                Text(text = "Last Sync: $lastSyncStr")
-                if (lastDeviceName.isNotBlank()) {
-                    Text(text = "Target Desk Board: $lastDeviceName ($lastDeviceMac)")
-                }
-                if (lastAckResponse.isNotBlank()) {
+        // --- 1. Long-Run Test Hub Card ---
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
-                        text = "Firmware Ingestion ACK: $lastAckResponse",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF2E7D32)
+                        text = "🔬 Long-Run Test Hub",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp
+                    )
+                    Text(
+                        text = "Session: ${sessionSummary.sessionDurationFormatted}",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
-                Text(
-                    text = "Last Result: $lastStatus",
-                    color = when {
-                        lastStatus.startsWith("SUCCESS") -> Color(0xFF2E7D32)
-                        lastStatus.startsWith("BLE_ERROR") || lastStatus.startsWith("HTTP_ERROR") -> MaterialTheme.colorScheme.error
-                        else -> MaterialTheme.colorScheme.onSurface
-                    },
-                    fontWeight = FontWeight.Medium
-                )
-                if (lastBytesSent > 0) {
-                    Text(text = "Last Payload: $lastBytesSent bytes transferred")
+
+                // High-Level Metrics 3x2 Grid
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(text = "Sync Success", fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
+                        Text(
+                            text = "${sessionSummary.successfulSyncs}/${sessionSummary.totalAttempts} (${sessionSummary.successRatePct}%)",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (sessionSummary.failedSyncs == 0 && sessionSummary.totalAttempts > 0) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(text = "Missed / Delayed", fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
+                        Text(
+                            text = "${sessionSummary.delayedSyncCount} delayed",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (sessionSummary.delayedSyncCount > 0) MaterialTheme.colorScheme.error else Color(0xFF2E7D32)
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(text = "Flights Verified", fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
+                        Text(
+                            text = "${sessionSummary.totalFlightsVerified} flights",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
-                Text(text = "Background Schedule: Every 30 mins (Active)")
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(text = "Battery Status", fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
+                        val deltaSign = if (sessionSummary.batteryNetDeltaPct >= 0) "+${sessionSummary.batteryNetDeltaPct}%" else "${sessionSummary.batteryNetDeltaPct}%"
+                        Text(
+                            text = "${sessionSummary.initialBatteryPct}% → ${sessionSummary.currentBatteryPct}% ($deltaSign)",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(text = "Avg Execution", fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
+                        Text(
+                            text = "${sessionSummary.avgExecutionDurationMs} ms",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(text = "WakeLock Duty", fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
+                        Text(
+                            text = "${String.format(Locale.US, "%.2f", sessionSummary.dutyCyclePct)}% (${sessionSummary.totalWakeLockDurationMs / 1000}s)",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                // Action Buttons: Reset Session & Copy Report
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            DiagnosticsRepository.resetSession(context)
+                            diagnosticEntries = DiagnosticsRepository.getEntries(context)
+                            sessionSummary = DiagnosticsRepository.getSessionSummary(context)
+                            Toast.makeText(context, "Test session reset. Starting fresh baseline.", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(text = "Reset Baseline", fontSize = 12.sp)
+                    }
+
+                    Button(
+                        onClick = {
+                            val report = DiagnosticsRepository.generateMarkdownReport(context)
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("KMSP Test Report", report))
+                            Toast.makeText(context, "Full diagnostic report copied to clipboard!", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(text = "📋 Copy Report", fontSize = 12.sp)
+                    }
+                }
             }
         }
 
-        // Configuration Card
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(text = "Connection Settings", fontWeight = FontWeight.SemiBold)
-                OutlinedTextField(
-                    value = backendUrl,
-                    onValueChange = {
-                        backendUrl = it
-                        prefs.edit().putString("backend_url", it).apply()
-                    },
-                    label = { Text("Backend URL (Local IP or Cloudflare Tunnel)") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = apiToken,
-                    onValueChange = {
-                        apiToken = it
-                        prefs.edit().putString("api_token", it).apply()
-                    },
-                    label = { Text("API Token (Optional X-KMSP-Token)") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        }
-
-        // Manual Immediate Push Action
+        // --- 2. Manual Immediate Push Action ---
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
@@ -220,7 +273,11 @@ fun ReplayDashboardScreen() {
 
                         scope.launch {
                             val result = withContext(Dispatchers.IO) {
-                                ReplaySyncExecutor.executeSync(context, ignorePresence = true) { progress ->
+                                ReplaySyncExecutor.executeSync(
+                                    context = context,
+                                    ignorePresence = true,
+                                    triggerSource = "MANUAL_UI"
+                                ) { progress ->
                                     scope.launch(Dispatchers.Main) {
                                         syncProgressMessage = progress
                                     }
@@ -239,6 +296,8 @@ fun ReplayDashboardScreen() {
                                 syncProgressMessage = "FAILED: $err"
                                 Toast.makeText(context, "Sync failed: $err", Toast.LENGTH_LONG).show()
                             }
+                            diagnosticEntries = DiagnosticsRepository.getEntries(context)
+                            sessionSummary = DiagnosticsRepository.getSessionSummary(context)
                             ExactAlarmReceiver.scheduleNextSync(context)
                         }
                     },
@@ -270,13 +329,95 @@ fun ReplayDashboardScreen() {
                         modifier = Modifier.padding(top = 4.dp)
                     )
                 }
+
+                Text(
+                    text = "Background Auto-Sync: Every 30 mins (Active via Exact RTC Wake Alarm)",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.outline
+                )
             }
         }
 
-        // Diagnostics Card
+        // --- 3. Chronological Sync History & Flight Audit ---
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "📋 Sync History & Flight Audit (${diagnosticEntries.size} runs)",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
+
+                if (diagnosticEntries.isEmpty()) {
+                    Text(
+                        text = "No sync runs recorded yet. Press 'Sync Now' above or wait for background alarm.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                } else {
+                    diagnosticEntries.forEachIndexed { index, entry ->
+                        val syncNumber = diagnosticEntries.size - index
+                        DiagnosticEntryCard(syncNumber = syncNumber, entry = entry)
+                    }
+                }
+            }
+        }
+
+        // --- 4. Presence & Mode Selector Card ---
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(text = "Diagnostics & Bench Verification", fontWeight = FontWeight.SemiBold)
+                Text(text = "Geofencing & Sync Policy", fontWeight = FontWeight.SemiBold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(
+                        selected = (selectedMode == SyncMode.HOME_TEST),
+                        onClick = {
+                            selectedMode = SyncMode.HOME_TEST
+                            PresenceEngine.setMode(SyncMode.HOME_TEST, save = true, context = context)
+                        }
+                    )
+                    Text("Home Test Mode (24/7 uninhibited)")
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(
+                        selected = (selectedMode == SyncMode.OFFICE_PROD),
+                        onClick = {
+                            selectedMode = SyncMode.OFFICE_PROD
+                            PresenceEngine.setMode(SyncMode.OFFICE_PROD, save = true, context = context)
+                        }
+                    )
+                    Text("Office Mode (Work Hours + Ambient Wi-Fi)")
+                }
+            }
+        }
+
+        // --- 5. Connection Settings Card ---
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(text = "Connection Settings", fontWeight = FontWeight.SemiBold)
+                OutlinedTextField(
+                    value = backendUrl,
+                    onValueChange = {
+                        backendUrl = it
+                        prefs.edit().putString("backend_url", it).apply()
+                    },
+                    label = { Text("Backend URL (Local IP or Cloudflare Tunnel)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = apiToken,
+                    onValueChange = {
+                        apiToken = it
+                        prefs.edit().putString("api_token", it).apply()
+                    },
+                    label = { Text("API Token (Optional X-KMSP-Token)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        // --- 6. Connectivity Bench Diagnostics ---
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(text = "Hardware Diagnostic Checks", fontWeight = FontWeight.SemiBold)
 
                 // 1. Backend Connectivity Test
                 Button(
@@ -313,7 +454,7 @@ fun ReplayDashboardScreen() {
                     onClick = {
                         if (isScanningBle) return@Button
                         isScanningBle = true
-                        bleDiagnosticResult = "Scanning for 'KMSP-Runway-Office' (6s)..."
+                        bleDiagnosticResult = "Scanning for 'KMSP-Runway-Office' (8s)..."
 
                         scope.launch {
                             val scanResultText = withContext(Dispatchers.IO) {
@@ -345,6 +486,158 @@ fun ReplayDashboardScreen() {
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(start = 4.dp)
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun DiagnosticEntryCard(syncNumber: Int, entry: SyncDiagnosticEntry) {
+    var expanded by remember { mutableStateOf(false) }
+
+    val statusColor = when {
+        entry.isSuccess -> Color(0xFF2E7D32)
+        entry.isIntervalDelayed -> Color(0xFFE65100)
+        else -> MaterialTheme.colorScheme.error
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            // Header: Sync # and Status Badge
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Sync #$syncNumber • ${entry.formattedTime}",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
+                Text(
+                    text = if (entry.isSuccess) "VERIFIED" else "FAILED",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = statusColor
+                )
+            }
+
+            // Trigger & Interval Stats
+            val intervalStr = if (entry.elapsedSinceLastSyncMs > 0) {
+                val mins = entry.elapsedSinceLastSyncMs / 60000
+                val secs = (entry.elapsedSinceLastSyncMs % 60000) / 1000
+                "${mins}m ${secs}s (jitter: ${if (entry.intervalJitterSec >= 0) "+${entry.intervalJitterSec}s" else "${entry.intervalJitterSec}s"})"
+            } else {
+                "First Sync Run"
+            }
+
+            Text(
+                text = "Trigger: ${entry.triggerSource} | Interval: $intervalStr",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.outline
+            )
+
+            // Power & Duration
+            Text(
+                text = "Duration: ${entry.executionDurationMs}ms (WakeLock: ${entry.wakeLockDurationMs}ms) | Battery: ${entry.batteryPctBefore}% → ${entry.batteryPctAfter}%",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+            // Pipeline Step 1: Backend Capture
+            Text(
+                text = "1. Pi Capture: Batch ${entry.batchId} (${entry.flightCount} flights, ${entry.wirePayloadBytes} B, chrono: ${if (entry.isChronological) "PASS" else "FAIL"})",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium
+            )
+
+            // Pipeline Step 2: BLE Transport
+            Text(
+                text = "2. BLE Push: ${entry.connectionMethod} to ${entry.targetMac} (${entry.bleBytesTransferred} B, MTU ${entry.bleMtu}, connect: ${entry.bleConnectDurationMs}ms)",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium
+            )
+
+            // Pipeline Step 3: Hardware ACK Verification
+            if (entry.ackReceived) {
+                Text(
+                    text = "3. Desk Board ACK: Batch match: ${if (entry.isBatchVerified) "PASS" else "FAIL"} | Ops match: ${if (entry.isOpsVerified) "PASS" else "FAIL"} | Free Heap: ${entry.ackFreeHeap / 1024} KB",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = if (entry.isBatchVerified && entry.isOpsVerified) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error
+                )
+            }
+
+            if (entry.flightSummaryText.isNotBlank()) {
+                Text(
+                    text = "Flights: ${entry.flightSummaryText}",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+
+            if (entry.errorMessage != null) {
+                Text(
+                    text = "Error: ${entry.errorMessage}",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.error,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            // Expandable Flight List Toggle
+            if (entry.flights.isNotEmpty()) {
+                Text(
+                    text = if (expanded) "▲ Hide Full Flight Schedule" else "▼ View All ${entry.flights.size} Flights",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .clickable { expanded = !expanded }
+                        .padding(top = 4.dp)
+                )
+
+                if (expanded) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(4.dp))
+                            .padding(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        entry.flights.forEach { flight ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "+${flight.offsetSec}s  ${flight.callsign} (${flight.flightLabel})",
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = "RW ${flight.runway} ${flight.action} [${flight.aircraftType}]",
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = if (flight.action == "TAKEOFF") Color(0xFF1976D2) else Color(0xFF388E3C)
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

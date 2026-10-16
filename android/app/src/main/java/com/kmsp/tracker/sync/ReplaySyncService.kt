@@ -49,13 +49,21 @@ class ReplaySyncService : Service() {
             acquire(60000L) // 60s max safety ceiling
         }
 
-        Log.i(TAG, "ReplaySyncService started. WakeLock acquired.")
+        val serviceStartTime = System.currentTimeMillis()
+        val triggerSource = intent?.getStringExtra("trigger_source")
+            ?: if (intent?.action == ACTION_TRIGGER_SYNC) "BACKGROUND_ALARM" else "SERVICE_DIRECT"
 
         // 3. Execute sync task off the main thread via shared ReplaySyncExecutor
         executor.execute {
             try {
                 runBlocking {
-                    ReplaySyncExecutor.executeSync(this@ReplaySyncService, ignorePresence = false)
+                    val wakeLockHeld = System.currentTimeMillis() - serviceStartTime
+                    ReplaySyncExecutor.executeSync(
+                        context = this@ReplaySyncService,
+                        ignorePresence = false,
+                        triggerSource = triggerSource,
+                        wakeLockDurationMs = wakeLockHeld
+                    )
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error in background sync: ${e.message}", e)

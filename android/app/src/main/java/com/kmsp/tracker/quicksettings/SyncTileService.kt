@@ -12,7 +12,9 @@ class SyncTileService : TileService() {
 
     override fun onClick() {
         super.onClick()
-        val intent = Intent(this, ReplaySyncService::class.java)
+        val intent = Intent(this, ReplaySyncService::class.java).apply {
+            putExtra("trigger_source", "QUICK_SETTINGS_TILE")
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent)
         } else {

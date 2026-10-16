@@ -20,6 +20,7 @@ class ExactAlarmReceiver : BroadcastReceiver() {
         // 1. Dispatch directly to ephemeral ForegroundService within 5-second SLA
         val serviceIntent = Intent(context, ReplaySyncService::class.java).apply {
             action = intent.action
+            putExtra("trigger_source", "BACKGROUND_ALARM")
         }
 
         try {
