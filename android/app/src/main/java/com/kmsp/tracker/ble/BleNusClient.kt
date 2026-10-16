@@ -29,6 +29,13 @@ val NUS_RX_UUID: UUID = UUID.fromString("6E400002-B5A3-F393-E0A9-E50E24DCCA9E")
 val NUS_TX_UUID: UUID = UUID.fromString("6E400003-B5A3-F393-E0A9-E50E24DCCA9E")
 val CLIENT_CONFIG_DESCRIPTOR_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
+data class BleTransferResult(
+    val bytesSent: Int,
+    val deviceName: String,
+    val deviceAddress: String,
+    val appAck: String
+)
+
 class BleNusClient(private val context: Context) {
 
     private val bluetoothAdapter: BluetoothAdapter? by lazy {
@@ -41,7 +48,7 @@ class BleNusClient(private val context: Context) {
         payloadJson: String,
         timeoutSec: Long = 10,
         onProgress: ((String) -> Unit)? = null
-    ): Result<Int> {
+    ): Result<BleTransferResult> {
         val adapter = bluetoothAdapter
         if (adapter == null || !adapter.isEnabled) {
             return Result.failure(IllegalStateException("Bluetooth is disabled or unavailable on this device"))
@@ -63,7 +70,7 @@ class BleNusClient(private val context: Context) {
                 val name = record?.deviceName ?: device.name
                 val serviceUuids = record?.serviceUuids
                 val hasNusUuid = serviceUuids?.any { it.uuid == NUS_SERVICE_UUID } == true
-                val matchesName = name != null && (name.contains("KMSP-Runway", ignoreCase = true) || name.contains("Office", ignoreCase = true))
+                val matchesName = name != null && name.contains("KMSP-Runway", ignoreCase = true)
 
                 Log.d(TAG, "Scanned BLE device: name='$name', addr=${device.address}, rssi=${result.rssi}")
 
@@ -331,8 +338,9 @@ class BleNusClient(private val context: Context) {
             }
 
             Log.i(TAG, "Closed-loop verification successful: $appAckResponse")
-            onProgress?.invoke("SUCCESS: Confirmed by Desk Board ($appAckResponse)!")
-            return Result.success(bytesSent)
+            val targetName = device.name ?: "KMSP-Runway-Office"
+            onProgress?.invoke("SUCCESS: Confirmed by $targetName ($appAckResponse)!")
+            return Result.success(BleTransferResult(bytesSent, targetName, device.address, appAckResponse))
 
         } catch (e: SecurityException) {
             return Result.failure(IllegalStateException("Bluetooth permission error during transfer: ${e.message}"))

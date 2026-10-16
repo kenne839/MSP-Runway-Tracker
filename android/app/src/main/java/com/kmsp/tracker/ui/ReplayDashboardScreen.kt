@@ -62,6 +62,9 @@ fun ReplayDashboardScreen() {
     var lastSyncTs by remember { mutableStateOf(prefs.getLong("last_sync_timestamp", 0)) }
     var lastStatus by remember { mutableStateOf(prefs.getString("last_status", "Never Synced") ?: "Never Synced") }
     var lastBytesSent by remember { mutableStateOf(prefs.getInt("last_bytes_sent", 0)) }
+    var lastDeviceName by remember { mutableStateOf(prefs.getString("last_device_name", "") ?: "") }
+    var lastDeviceMac by remember { mutableStateOf(prefs.getString("last_device_mac", "") ?: "") }
+    var lastAckResponse by remember { mutableStateOf(prefs.getString("last_ack_response", "") ?: "") }
 
     DisposableEffect(prefs) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { sp, key ->
@@ -69,6 +72,9 @@ fun ReplayDashboardScreen() {
                 "last_sync_timestamp" -> lastSyncTs = sp.getLong("last_sync_timestamp", 0)
                 "last_status" -> lastStatus = sp.getString("last_status", "Never Synced") ?: "Never Synced"
                 "last_bytes_sent" -> lastBytesSent = sp.getInt("last_bytes_sent", 0)
+                "last_device_name" -> lastDeviceName = sp.getString("last_device_name", "") ?: ""
+                "last_device_mac" -> lastDeviceMac = sp.getString("last_device_mac", "") ?: ""
+                "last_ack_response" -> lastAckResponse = sp.getString("last_ack_response", "") ?: ""
                 "sync_mode" -> selectedMode = PresenceEngine.getMode()
             }
         }
@@ -97,11 +103,25 @@ fun ReplayDashboardScreen() {
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text(
-            text = "KMSP Runway Office Bridge",
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Bold
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = "KMSP Runway Bridge",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "App Build: v1.0.5 (Build 6)",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
 
         // Presence / Mode Selector Card
         Card(modifier = Modifier.fillMaxWidth()) {
@@ -135,6 +155,16 @@ fun ReplayDashboardScreen() {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(text = "Sync Telemetry Status", fontWeight = FontWeight.SemiBold)
                 Text(text = "Last Sync: $lastSyncStr")
+                if (lastDeviceName.isNotBlank()) {
+                    Text(text = "Target Desk Board: $lastDeviceName ($lastDeviceMac)")
+                }
+                if (lastAckResponse.isNotBlank()) {
+                    Text(
+                        text = "Firmware Ingestion ACK: $lastAckResponse",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF2E7D32)
+                    )
+                }
                 Text(
                     text = "Last Result: $lastStatus",
                     color = when {
@@ -197,7 +227,9 @@ fun ReplayDashboardScreen() {
                             isSyncing = false
                             if (result.isSuccess) {
                                 val bytes = result.getOrDefault(0)
-                                syncProgressMessage = "SUCCESS: Deployed $bytes bytes to desk board!"
+                                val ack = prefs.getString("last_ack_response", "") ?: ""
+                                val targetName = prefs.getString("last_device_name", "KMSP-Runway-Office") ?: "KMSP-Runway-Office"
+                                syncProgressMessage = "SUCCESS: Confirmed by $targetName ($bytes B)!\nACK: $ack"
                                 Toast.makeText(context, "Sync complete ($bytes bytes)!", Toast.LENGTH_SHORT).show()
                             } else {
                                 val err = result.exceptionOrNull()?.message ?: "Unknown error"
@@ -335,7 +367,7 @@ private fun testBleDiscovery(context: Context): String {
             val name = record?.deviceName ?: device.name
             val serviceUuids = record?.serviceUuids
             val hasNusUuid = serviceUuids?.any { it.uuid == NUS_SERVICE_UUID } == true
-            val matchesName = name != null && (name.contains("KMSP-Runway", ignoreCase = true) || name.contains("Office", ignoreCase = true))
+            val matchesName = name != null && name.contains("KMSP-Runway", ignoreCase = true)
 
             if (matchesName || hasNusUuid) {
                 foundDetails = "SUCCESS! Found '$name'\nMAC: ${device.address} | RSSI: ${result.rssi} dBm"

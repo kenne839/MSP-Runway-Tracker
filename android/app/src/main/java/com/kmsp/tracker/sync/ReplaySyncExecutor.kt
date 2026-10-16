@@ -51,15 +51,19 @@ object ReplaySyncExecutor {
         }
 
         if (bleResult.isSuccess) {
-            val bytesSent = bleResult.getOrDefault(0)
-            Log.i(TAG, "Sync complete! $bytesSent bytes transmitted to ESP32.")
+            val transfer = bleResult.getOrThrow()
+            Log.i(TAG, "Sync complete! ${transfer.bytesSent} bytes verified by ${transfer.deviceName}.")
             prefs.edit()
                 .putLong("last_sync_timestamp", System.currentTimeMillis())
-                .putInt("last_bytes_sent", bytesSent)
-                .putString("last_status", "SUCCESS ($bytesSent bytes)")
+                .putInt("last_bytes_sent", transfer.bytesSent)
+                .putString("last_device_name", transfer.deviceName)
+                .putString("last_device_mac", transfer.deviceAddress)
+                .putString("last_ack_response", transfer.appAck)
+                .putString("last_status", "SUCCESS: Verified by ${transfer.deviceName} (${transfer.bytesSent} B)")
                 .apply()
-            onProgress("SUCCESS: Deployed $bytesSent bytes to desk board!")
-            return Result.success(bytesSent)
+            val ackSummary = "SUCCESS: Confirmed by ${transfer.deviceName}!\nACK: ${transfer.appAck}"
+            onProgress(ackSummary)
+            return Result.success(transfer.bytesSent)
         } else {
             val err = bleResult.exceptionOrNull()?.message ?: "Unknown BLE error"
             Log.w(TAG, "BLE transmission failed: $err")

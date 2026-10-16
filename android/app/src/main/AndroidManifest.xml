@@ -14,7 +14,9 @@
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
 
     <!-- Bluetooth Low Energy Modern (Android 12+ API 31) -->
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <uses-permission 
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
     <!-- Wi-Fi & Passive Beacon Listening -->

@@ -286,6 +286,7 @@ static uint32_t s_sync_card_until_millis = 0;
 #if defined(BOARD_MODE_BLE)
 extern bool isReplayBatchActive();
 extern uint8_t getReplayEventCount();
+extern bool isBleConnected();
 #endif
 
 void showSyncIngestionCard(uint8_t ops_count, uint32_t window_sec) {
@@ -571,8 +572,13 @@ void renderDisplayLoop() {
             display.setTextColor(SSD1306_WHITE);
             display.setCursor(2, 3);
             display.print(F("KMSP AIRPORT"));
-            display.setCursor(90, 3);
-            display.print(F("[BLE]"));
+            if (isBleConnected()) {
+                display.setCursor(84, 3);
+                display.print(F("[CONN]"));
+            } else {
+                display.setCursor(90, 3);
+                display.print(F("[BLE]"));
+            }
             display.drawFastHLine(0, 15, SCREEN_WIDTH, SSD1306_WHITE);
 
             // BOTTOM BLUE ZONE (Rows y = 16 to 63)
@@ -580,10 +586,18 @@ void renderDisplayLoop() {
             printFitted("BLE: " BLE_DEVICE_NAME, 21);
 
             display.setCursor(0, 29);
-            printFitted("Status: Ready to Sync", 21);
+            if (isBleConnected()) {
+                printFitted("Status: Connected!", 21);
+            } else {
+                printFitted("Status: Ready to Sync", 21);
+            }
 
             display.setCursor(0, 40);
-            printFitted("Awaiting Phone Batch", 21);
+            if (isBleConnected()) {
+                printFitted("Streaming batch...", 21);
+            } else {
+                printFitted("Awaiting Phone Batch", 21);
+            }
 
             display.drawFastHLine(0, 51, SCREEN_WIDTH, SSD1306_WHITE);
 
