@@ -81,6 +81,9 @@ fun ReplayDashboardScreen() {
     var homeWifiSsid by remember {
         mutableStateOf(prefs.getString("home_wifi_ssid", "") ?: "")
     }
+    var officeWifiSsid by remember {
+        mutableStateOf(PresenceEngine.getOfficeSsid(context))
+    }
 
     // Reactive Compose states updated via SharedPreferences listener
     var lastSyncTs by remember { mutableStateOf(prefs.getLong("last_sync_timestamp", 0)) }
@@ -125,6 +128,10 @@ fun ReplayDashboardScreen() {
                     homeWifiSsid = sp.getString("home_wifi_ssid", "") ?: ""
                     presenceStatus = PresenceEngine.getPresenceStatus(context)
                 }
+                "office_wifi_ssid" -> {
+                    officeWifiSsid = PresenceEngine.getOfficeSsid(context)
+                    presenceStatus = PresenceEngine.getPresenceStatus(context)
+                }
             }
         }
         val diagListener = {
@@ -166,7 +173,7 @@ fun ReplayDashboardScreen() {
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "App Build: v1.2.0 (Build 12) - Presence & Scheduler",
+                    text = "App Build: v1.2.1 (Build 13) - Office & Home Geofencing",
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold
@@ -492,6 +499,59 @@ fun ReplayDashboardScreen() {
                             Text("Set Current", fontSize = 12.sp)
                         }
                     }
+                }
+
+                // Target Office SSID / Keywords configuration (Visible if in OFFICE_PROD mode)
+                if (selectedMode == SyncMode.OFFICE_PROD) {
+                    Text(
+                        text = "Office Wi-Fi Configuration",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = officeWifiSsid,
+                            onValueChange = {
+                                officeWifiSsid = it
+                                PresenceEngine.setOfficeSsid(context, it)
+                                presenceStatus = PresenceEngine.getPresenceStatus(context)
+                            },
+                            label = { Text("Target Office SSID / Keywords") },
+                            placeholder = { Text("e.g. AcmeNet, Acme-Guest") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+
+                        Button(
+                            onClick = {
+                                val currentSsid = WifiHelper.getCurrentSsid(context)
+                                if (currentSsid.isNotBlank()) {
+                                    officeWifiSsid = currentSsid
+                                    PresenceEngine.setOfficeSsid(context, currentSsid)
+                                    presenceStatus = PresenceEngine.getPresenceStatus(context)
+                                    Toast.makeText(context, "Target Office Wi-Fi set to '$currentSsid'", Toast.LENGTH_SHORT).show()
+                                } else if (!WifiHelper.isWifiConnected(context)) {
+                                    Toast.makeText(context, "Cannot read SSID: Phone is on Cellular Data. Connect to Office Wi-Fi first, or type name manually.", Toast.LENGTH_LONG).show()
+                                } else {
+                                    Toast.makeText(context, "Wi-Fi connected but SSID is hidden. Ensure Android Location toggle is ON, or enter SSID manually.", Toast.LENGTH_LONG).show()
+                                }
+                            },
+                            modifier = Modifier.padding(top = 6.dp)
+                        ) {
+                            Text("Set Current", fontSize = 12.sp)
+                        }
+                    }
+
+                    Text(
+                        text = "Matches active Wi-Fi or ambient beacons in radio range (comma-separated).",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.outline
+                    )
                 }
 
                 // Live Geofence Policy Decision Box

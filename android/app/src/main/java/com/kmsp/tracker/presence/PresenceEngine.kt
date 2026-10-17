@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.wifi.WifiManager
 import android.util.Log
 import java.util.Calendar
+import java.util.Locale
 
 private const val TAG = "KMSP_PRESENCE"
 
@@ -23,6 +24,7 @@ data class PresenceStatus(
     val isCellularConnected: Boolean,
     val currentSsid: String,
     val targetHomeSsid: String,
+    val targetOfficeSsid: String = "",
     val localIp: String = "",
     val isWorkHours: Boolean? = null
 )
@@ -67,10 +69,22 @@ object PresenceEngine {
         Log.i(TAG, "Home Wi-Fi SSID set to: '$cleanSsid'")
     }
 
+    fun getOfficeSsid(context: Context): String {
+        val prefs = context.getSharedPreferences("kmsp_prefs", Context.MODE_PRIVATE)
+        return prefs.getString("office_wifi_ssid", "Office, Guest, Corp, Work")?.trim() ?: "Office, Guest, Corp, Work"
+    }
+
+    fun setOfficeSsid(context: Context, ssid: String) {
+        val prefs = context.getSharedPreferences("kmsp_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putString("office_wifi_ssid", ssid.trim()).apply()
+        Log.i(TAG, "Office Wi-Fi SSID / keywords set to: '${ssid.trim()}'")
+    }
+
     @SuppressLint("MissingPermission")
     fun getPresenceStatus(context: Context): PresenceStatus {
         val prefs = context.getSharedPreferences("kmsp_prefs", Context.MODE_PRIVATE)
         val targetHomeSsid = prefs.getString("home_wifi_ssid", "")?.trim() ?: ""
+        val targetOfficeConfig = getOfficeSsid(context)
         val isWifi = WifiHelper.isWifiConnected(context)
         val isCellular = WifiHelper.isCellularConnected(context)
         val currentSsid = WifiHelper.getCurrentSsid(context)
@@ -93,6 +107,7 @@ object PresenceEngine {
                         isCellularConnected = isCellular,
                         currentSsid = "",
                         targetHomeSsid = targetHomeSsid,
+                        targetOfficeSsid = targetOfficeConfig,
                         localIp = localIp
                     )
                 } else if (targetHomeSsid.isNotBlank() && currentSsid.isNotBlank()) {
@@ -111,6 +126,7 @@ object PresenceEngine {
                         isCellularConnected = false,
                         currentSsid = currentSsid,
                         targetHomeSsid = targetHomeSsid,
+                        targetOfficeSsid = targetOfficeConfig,
                         localIp = localIp
                     )
                 } else if (targetHomeSsid.isNotBlank() && currentSsid.isBlank()) {
@@ -131,6 +147,7 @@ object PresenceEngine {
                         isCellularConnected = false,
                         currentSsid = "",
                         targetHomeSsid = targetHomeSsid,
+                        targetOfficeSsid = targetOfficeConfig,
                         localIp = localIp
                     )
                 } else {
@@ -149,12 +166,18 @@ object PresenceEngine {
                         isCellularConnected = false,
                         currentSsid = currentSsid,
                         targetHomeSsid = "",
+                        targetOfficeSsid = targetOfficeConfig,
                         localIp = localIp
                     )
                 }
             }
 
             SyncMode.OFFICE_PROD -> {
+                val keywords = targetOfficeConfig.split(",")
+                    .map { it.trim() }
+                    .filter { it.isNotEmpty() }
+                    .ifEmpty { listOf("Office", "Guest", "Corp", "Work") }
+
                 // 1. Time Gating: Mon-Fri between 07:30 and 18:00
                 val cal = Calendar.getInstance()
                 val dayOfWeek = cal.get(Calendar.DAY_OF_WEEK)
@@ -169,21 +192,24 @@ object PresenceEngine {
                         isPermitted = false,
                         mode = currentMode,
                         policyName = "Office Mode",
-                        reason = "Outside Work Hours (Mon-Fri 07:30–18:00). Current time: $hour:$minute",
+                        reason = "Outside Work Hours (Mon-Fri 07:30–18:00). Current time: %02d:%02d".format(Locale.US, hour, minute),
                         isWifiConnected = isWifi,
                         isCellularConnected = isCellular,
                         currentSsid = currentSsid,
                         targetHomeSsid = targetHomeSsid,
+                        targetOfficeSsid = targetOfficeConfig,
                         localIp = localIp,
                         isWorkHours = false
                     )
                 } else {
-                    // Check office Wi-Fi presence
+                    // Check if connected Wi-Fi matches any office keyword or exact SSID
                     var officeDetected = false
-                    val keywords = listOf("Office", "Guest", "Corp", "Work")
+                    var matchedSsid = ""
+
                     for (keyword in keywords) {
                         if (currentSsid.contains(keyword, ignoreCase = true)) {
                             officeDetected = true
+                            matchedSsid = currentSsid
                             break
                         }
                     }
@@ -198,6 +224,7 @@ object PresenceEngine {
                                 for (keyword in keywords) {
                                     if (s.contains(keyword, ignoreCase = true)) {
                                         officeDetected = true
+                                        matchedSsid = s
                                         break
                                     }
                                 }
@@ -208,24 +235,35 @@ object PresenceEngine {
                         }
                     }
 
-                    val reason = if (officeDetected) {
-                        "Inside Geofence: Work hours active & office Wi-Fi detected"
+                    if (officeDetected) {
+                        PresenceStatus(
+                            isPermitted = true,
+                            mode = currentMode,
+                            policyName = "Office Mode",
+                            reason = "Inside Geofence: Work hours active & office Wi-Fi '$matchedSsid' detected",
+                            isWifiConnected = isWifi,
+                            isCellularConnected = isCellular,
+                            currentSsid = currentSsid,
+                            targetHomeSsid = targetHomeSsid,
+                            targetOfficeSsid = targetOfficeConfig,
+                            localIp = localIp,
+                            isWorkHours = true
+                        )
                     } else {
-                        "Inside Geofence: Work hours active (Ambient fallback)"
+                        PresenceStatus(
+                            isPermitted = false,
+                            mode = currentMode,
+                            policyName = "Office Mode",
+                            reason = "Outside Geofence: Work hours active, but office Wi-Fi ('$targetOfficeConfig') not detected in the air",
+                            isWifiConnected = isWifi,
+                            isCellularConnected = isCellular,
+                            currentSsid = currentSsid,
+                            targetHomeSsid = targetHomeSsid,
+                            targetOfficeSsid = targetOfficeConfig,
+                            localIp = localIp,
+                            isWorkHours = true
+                        )
                     }
-
-                    PresenceStatus(
-                        isPermitted = true,
-                        mode = currentMode,
-                        policyName = "Office Mode",
-                        reason = reason,
-                        isWifiConnected = isWifi,
-                        isCellularConnected = isCellular,
-                        currentSsid = currentSsid,
-                        targetHomeSsid = targetHomeSsid,
-                        localIp = localIp,
-                        isWorkHours = true
-                    )
                 }
             }
 
@@ -239,6 +277,7 @@ object PresenceEngine {
                     isCellularConnected = isCellular,
                     currentSsid = currentSsid,
                     targetHomeSsid = targetHomeSsid,
+                    targetOfficeSsid = targetOfficeConfig,
                     localIp = localIp
                 )
             }
