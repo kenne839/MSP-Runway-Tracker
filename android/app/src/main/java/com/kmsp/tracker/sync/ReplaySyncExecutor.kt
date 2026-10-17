@@ -34,10 +34,11 @@ object ReplaySyncExecutor {
         val jitterSec = if (previousSyncTs > 0) (elapsedSinceLastSyncMs - (30 * 60 * 1000L)) / 1000 else 0L
         val isDelayed = if (previousSyncTs > 0) (elapsedSinceLastSyncMs > 35 * 60 * 1000L) else false
 
-        if (!ignorePresence && !PresenceEngine.isSyncPermitted(context)) {
-            val msg = "Presence policy inhibited sync execution (Outside office or hours)."
+        val presenceStatus = PresenceEngine.getPresenceStatus(context)
+        if (!ignorePresence && !presenceStatus.isPermitted) {
+            val msg = "Sync inhibited: ${presenceStatus.reason}"
             Log.i(TAG, msg)
-            prefs.edit().putString("last_status", "SKIPPED: Out of office / inactive").apply()
+            prefs.edit().putString("last_status", "SKIPPED: ${presenceStatus.reason}").apply()
 
             DiagnosticsRepository.recordSync(
                 context,
@@ -53,7 +54,8 @@ object ReplaySyncExecutor {
                     executionDurationMs = System.currentTimeMillis() - syncStartTime,
                     wakeLockDurationMs = wakeLockDurationMs,
                     isSuccess = false,
-                    statusSummary = "SKIPPED: Policy inhibited"
+                    statusSummary = "SKIPPED: ${presenceStatus.reason}",
+                    errorMessage = presenceStatus.reason
                 )
             )
             return Result.failure(IllegalStateException(msg))

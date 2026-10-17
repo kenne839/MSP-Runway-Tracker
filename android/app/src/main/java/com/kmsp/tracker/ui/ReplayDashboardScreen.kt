@@ -36,10 +36,13 @@ import com.kmsp.tracker.diagnostics.FlightOpSummary
 import com.kmsp.tracker.diagnostics.SyncDiagnosticEntry
 import com.kmsp.tracker.net.ReplayApiClient
 import com.kmsp.tracker.presence.PresenceEngine
+import com.kmsp.tracker.presence.PresenceStatus
 import com.kmsp.tracker.presence.SyncMode
+import com.kmsp.tracker.presence.WifiHelper
 import com.kmsp.tracker.sync.ExactAlarmReceiver
 import com.kmsp.tracker.sync.ReplaySyncExecutor
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -69,6 +72,15 @@ fun ReplayDashboardScreen() {
     var selectedMode by remember {
         mutableStateOf(PresenceEngine.getMode())
     }
+    var autoSyncEnabled by remember {
+        mutableStateOf(prefs.getBoolean("auto_sync_enabled", true))
+    }
+    var nextSyncTargetMs by remember {
+        mutableStateOf(prefs.getLong("next_sync_target_ms", 0L))
+    }
+    var homeWifiSsid by remember {
+        mutableStateOf(prefs.getString("home_wifi_ssid", "") ?: "")
+    }
 
     // Reactive Compose states updated via SharedPreferences listener
     var lastSyncTs by remember { mutableStateOf(prefs.getLong("last_sync_timestamp", 0)) }
@@ -82,6 +94,18 @@ fun ReplayDashboardScreen() {
     var diagnosticEntries by remember { mutableStateOf(DiagnosticsRepository.getEntries(context)) }
     var sessionSummary by remember { mutableStateOf(DiagnosticsRepository.getSessionSummary(context)) }
 
+    // Live ticking timer for countdown and presence refresh
+    var currentTimeMs by remember { mutableStateOf(System.currentTimeMillis()) }
+    var presenceStatus by remember { mutableStateOf(PresenceEngine.getPresenceStatus(context)) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1000L)
+            currentTimeMs = System.currentTimeMillis()
+            presenceStatus = PresenceEngine.getPresenceStatus(context)
+        }
+    }
+
     DisposableEffect(prefs) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { sp, key ->
             when (key) {
@@ -91,7 +115,16 @@ fun ReplayDashboardScreen() {
                 "last_device_name" -> lastDeviceName = sp.getString("last_device_name", "") ?: ""
                 "last_device_mac" -> lastDeviceMac = sp.getString("last_device_mac", "") ?: ""
                 "last_ack_response" -> lastAckResponse = sp.getString("last_ack_response", "") ?: ""
-                "sync_mode" -> selectedMode = PresenceEngine.getMode()
+                "sync_mode" -> {
+                    selectedMode = PresenceEngine.getMode()
+                    presenceStatus = PresenceEngine.getPresenceStatus(context)
+                }
+                "auto_sync_enabled" -> autoSyncEnabled = sp.getBoolean("auto_sync_enabled", true)
+                "next_sync_target_ms" -> nextSyncTargetMs = sp.getLong("next_sync_target_ms", 0L)
+                "home_wifi_ssid" -> {
+                    homeWifiSsid = sp.getString("home_wifi_ssid", "") ?: ""
+                    presenceStatus = PresenceEngine.getPresenceStatus(context)
+                }
             }
         }
         val diagListener = {
@@ -113,12 +146,6 @@ fun ReplayDashboardScreen() {
     var bleDiagnosticResult by remember { mutableStateOf("") }
     var isScanningBle by remember { mutableStateOf(false) }
 
-    val lastSyncStr = if (lastSyncTs > 0) {
-        SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(lastSyncTs))
-    } else {
-        "Never"
-    }
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -139,7 +166,7 @@ fun ReplayDashboardScreen() {
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "App Build: v1.1.0 (Build 11) - Diagnostic Edition",
+                    text = "App Build: v1.2.0 (Build 12) - Presence & Scheduler",
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold
@@ -147,7 +174,379 @@ fun ReplayDashboardScreen() {
             }
         }
 
-        // --- 1. Long-Run Test Hub Card ---
+        // =====================================================================
+        // --- 1. Master Auto-Sync Controller & Live State Card ---
+        // =====================================================================
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Top row: Section Title + Live State Badge
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "🎮 Auto-Sync Scheduler",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp
+                    )
+
+                    // Master App State Badge
+                    val (badgeText, badgeBg, badgeFg) = when {
+                        isSyncing -> Triple("🔄 SYNCING...", Color(0xFF1976D2), Color.White)
+                        !autoSyncEnabled -> Triple("⏹ STOPPED", Color(0xFF757575), Color.White)
+                        !presenceStatus.isPermitted -> Triple("⏸ INHIBITED (AWAY)", Color(0xFFE65100), Color.White)
+                        else -> Triple("▶ ACTIVE (30M)", Color(0xFF2E7D32), Color.White)
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = badgeBg,
+                        contentColor = badgeFg,
+                        modifier = Modifier.padding(start = 8.dp)
+                    ) {
+                        Text(
+                            text = badgeText,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+
+                // Countdown / Next Sync Display
+                val remainingMs = nextSyncTargetMs - currentTimeMs
+                val countdownText = when {
+                    !autoSyncEnabled -> "Auto-sync paused — Tap 'Start Auto-Sync' to resume"
+                    nextSyncTargetMs == 0L -> "No sync scheduled — Starting first interval"
+                    remainingMs > 0 -> {
+                        val mins = (remainingMs / 1000) / 60
+                        val secs = (remainingMs / 1000) % 60
+                        val targetTimeStr = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date(nextSyncTargetMs))
+                        if (!presenceStatus.isPermitted) {
+                            "Inhibited: Next check in ${mins}m ${secs}s (at $targetTimeStr) • Outside geofence"
+                        } else {
+                            "Next sync in: ${mins}m ${secs}s (at $targetTimeStr)"
+                        }
+                    }
+                    else -> "Sync due now / In progress..."
+                }
+
+                Text(
+                    text = countdownText,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = if (!autoSyncEnabled) {
+                        MaterialTheme.colorScheme.outline
+                    } else if (!presenceStatus.isPermitted) {
+                        Color(0xFFE65100)
+                    } else {
+                        Color(0xFF2E7D32)
+                    }
+                )
+
+                HorizontalDivider()
+
+                // Dual Action Buttons: [Start/Stop Auto-Sync] and [Sync Now]
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Start/Stop Button
+                    if (autoSyncEnabled) {
+                        OutlinedButton(
+                            onClick = {
+                                ExactAlarmReceiver.stopAutoSync(context)
+                                autoSyncEnabled = false
+                                nextSyncTargetMs = 0L
+                                Toast.makeText(context, "Auto-sync stopped. No background syncs will run.", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error
+                            )
+                        ) {
+                            Text("⏹ Stop Auto-Sync", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                        }
+                    } else {
+                        Button(
+                            onClick = {
+                                ExactAlarmReceiver.startAutoSync(context)
+                                autoSyncEnabled = true
+                                nextSyncTargetMs = ExactAlarmReceiver.getNextSyncTargetMs(context)
+                                Toast.makeText(context, "Auto-sync started! Next sync scheduled in 30 minutes.", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF2E7D32)
+                            )
+                        ) {
+                            Text("▶ Start Auto-Sync", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                        }
+                    }
+
+                    // Push Immediate "Sync Now" Button
+                    Button(
+                        onClick = {
+                            if (isSyncing) return@Button
+                            isSyncing = true
+                            syncProgressMessage = "Initiating push to desk board..."
+
+                            scope.launch {
+                                val result = withContext(Dispatchers.IO) {
+                                    ReplaySyncExecutor.executeSync(
+                                        context = context,
+                                        ignorePresence = true,
+                                        triggerSource = "MANUAL_UI"
+                                    ) { progress ->
+                                        scope.launch(Dispatchers.Main) {
+                                            syncProgressMessage = progress
+                                        }
+                                    }
+                                }
+
+                                isSyncing = false
+                                if (result.isSuccess) {
+                                    val bytes = result.getOrDefault(0)
+                                    val ack = prefs.getString("last_ack_response", "") ?: ""
+                                    val targetName = prefs.getString("last_device_name", "KMSP-Runway-Office") ?: "KMSP-Runway-Office"
+                                    syncProgressMessage = "SUCCESS: Confirmed by $targetName ($bytes B)!\nACK: $ack"
+                                    Toast.makeText(context, "Sync complete ($bytes bytes)!", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    val err = result.exceptionOrNull()?.message ?: "Unknown error"
+                                    syncProgressMessage = "FAILED: $err"
+                                    Toast.makeText(context, "Sync failed: $err", Toast.LENGTH_LONG).show()
+                                }
+                                diagnosticEntries = DiagnosticsRepository.getEntries(context)
+                                sessionSummary = DiagnosticsRepository.getSessionSummary(context)
+                                if (autoSyncEnabled) {
+                                    ExactAlarmReceiver.scheduleNextSync(context)
+                                    nextSyncTargetMs = ExactAlarmReceiver.getNextSyncTargetMs(context)
+                                }
+                            }
+                        },
+                        enabled = !isSyncing,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        if (isSyncing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(text = "Syncing...", fontSize = 13.sp)
+                        } else {
+                            Text(text = "🚀 Sync Now", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                        }
+                    }
+                }
+
+                if (syncProgressMessage.isNotBlank()) {
+                    Text(
+                        text = syncProgressMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = when {
+                            syncProgressMessage.startsWith("SUCCESS") -> Color(0xFF2E7D32)
+                            syncProgressMessage.startsWith("FAILED") -> MaterialTheme.colorScheme.error
+                            else -> MaterialTheme.colorScheme.primary
+                        },
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
+            }
+        }
+
+        // =====================================================================
+        // --- 2. Geofencing & Wi-Fi Presence Policy Card ---
+        // =====================================================================
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "🛰️ Geofencing & Network Presence",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp
+                )
+
+                // Selectable Policy Mode Radio Buttons
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            selectedMode = SyncMode.HOME_GEOFENCE
+                            PresenceEngine.setMode(SyncMode.HOME_GEOFENCE, save = true, context = context)
+                            presenceStatus = PresenceEngine.getPresenceStatus(context)
+                        }
+                    ) {
+                        RadioButton(
+                            selected = (selectedMode == SyncMode.HOME_GEOFENCE),
+                            onClick = {
+                                selectedMode = SyncMode.HOME_GEOFENCE
+                                PresenceEngine.setMode(SyncMode.HOME_GEOFENCE, save = true, context = context)
+                                presenceStatus = PresenceEngine.getPresenceStatus(context)
+                            }
+                        )
+                        Column {
+                            Text("Home Geofence Mode", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text("Matches Home Wi-Fi SSID; suppresses sync on cellular / away", fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
+                        }
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            selectedMode = SyncMode.OFFICE_PROD
+                            PresenceEngine.setMode(SyncMode.OFFICE_PROD, save = true, context = context)
+                            presenceStatus = PresenceEngine.getPresenceStatus(context)
+                        }
+                    ) {
+                        RadioButton(
+                            selected = (selectedMode == SyncMode.OFFICE_PROD),
+                            onClick = {
+                                selectedMode = SyncMode.OFFICE_PROD
+                                PresenceEngine.setMode(SyncMode.OFFICE_PROD, save = true, context = context)
+                                presenceStatus = PresenceEngine.getPresenceStatus(context)
+                            }
+                        )
+                        Column {
+                            Text("Office Mode", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text("Enforces Mon-Fri 07:30-18:00 + Office Wi-Fi beacon", fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
+                        }
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            selectedMode = SyncMode.UNINHIBITED_BENCH
+                            PresenceEngine.setMode(SyncMode.UNINHIBITED_BENCH, save = true, context = context)
+                            presenceStatus = PresenceEngine.getPresenceStatus(context)
+                        }
+                    ) {
+                        RadioButton(
+                            selected = (selectedMode == SyncMode.UNINHIBITED_BENCH),
+                            onClick = {
+                                selectedMode = SyncMode.UNINHIBITED_BENCH
+                                PresenceEngine.setMode(SyncMode.UNINHIBITED_BENCH, save = true, context = context)
+                                presenceStatus = PresenceEngine.getPresenceStatus(context)
+                            }
+                        )
+                        Column {
+                            Text("Bench Test Mode (24/7 Uninhibited)", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text("Bypasses all presence checks for lab verification", fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
+                        }
+                    }
+                }
+
+                HorizontalDivider()
+
+                // Target Home SSID configuration (Visible if in HOME_GEOFENCE mode)
+                if (selectedMode == SyncMode.HOME_GEOFENCE) {
+                    Text(
+                        text = "Home Wi-Fi Configuration",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = homeWifiSsid,
+                            onValueChange = {
+                                homeWifiSsid = it
+                                PresenceEngine.setHomeSsid(context, it)
+                                presenceStatus = PresenceEngine.getPresenceStatus(context)
+                            },
+                            label = { Text("Target Home Wi-Fi SSID") },
+                            placeholder = { Text("e.g. MyHomeNetwork") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+
+                        Button(
+                            onClick = {
+                                val currentSsid = WifiHelper.getCurrentSsid(context)
+                                if (currentSsid.isNotBlank()) {
+                                    homeWifiSsid = currentSsid
+                                    PresenceEngine.setHomeSsid(context, currentSsid)
+                                    presenceStatus = PresenceEngine.getPresenceStatus(context)
+                                    Toast.makeText(context, "Target Home Wi-Fi set to '$currentSsid'", Toast.LENGTH_SHORT).show()
+                                } else if (!WifiHelper.isWifiConnected(context)) {
+                                    Toast.makeText(context, "Cannot read SSID: Phone is on Cellular Data. Connect to Home Wi-Fi first.", Toast.LENGTH_LONG).show()
+                                } else {
+                                    Toast.makeText(context, "Wi-Fi connected but SSID is hidden. Ensure Android Location toggle is ON, or enter SSID manually.", Toast.LENGTH_LONG).show()
+                                }
+                            },
+                            modifier = Modifier.padding(top = 6.dp)
+                        ) {
+                            Text("Set Current", fontSize = 12.sp)
+                        }
+                    }
+                }
+
+                // Live Geofence Policy Decision Box
+                val isPermitted = presenceStatus.isPermitted
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isPermitted) Color(0xFFE8F5E9) else Color(0xFFFFF3E0),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = if (isPermitted) "✅ GEOFENCE: PERMITTED" else "⚠️ GEOFENCE: INHIBITED",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                                color = if (isPermitted) Color(0xFF1B5E20) else Color(0xFFBF360C)
+                            )
+                        }
+                        Text(
+                            text = presenceStatus.reason,
+                            fontSize = 12.sp,
+                            color = if (isPermitted) Color(0xFF2E7D32) else Color(0xFFE65100)
+                        )
+                        val connInfo = buildString {
+                            append("Network: ")
+                            if (presenceStatus.isWifiConnected) {
+                                append("Wi-Fi")
+                                if (presenceStatus.currentSsid.isNotBlank()) {
+                                    append(" ('${presenceStatus.currentSsid}')")
+                                }
+                                if (presenceStatus.localIp.isNotBlank()) {
+                                    append(" [${presenceStatus.localIp}]")
+                                }
+                            } else if (presenceStatus.isCellularConnected) {
+                                append("Mobile Cellular (LTE/5G)")
+                            } else {
+                                append("Disconnected")
+                            }
+                        }
+                        Text(
+                            text = connInfo,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
+                }
+            }
+        }
+
+        // =====================================================================
+        // --- 3. Long-Run Test Hub Card ---
+        // =====================================================================
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
@@ -171,7 +570,7 @@ fun ReplayDashboardScreen() {
                     )
                 }
 
-                // High-Level Metrics 3x2 Grid
+                // High-Level Metrics Grid
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(text = "Sync Success", fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
@@ -183,12 +582,12 @@ fun ReplayDashboardScreen() {
                         )
                     }
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(text = "Missed / Delayed", fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
+                        Text(text = "Inhibited (Away)", fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
                         Text(
-                            text = "${sessionSummary.delayedSyncCount} delayed",
+                            text = "${sessionSummary.skippedCount} skipped",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (sessionSummary.delayedSyncCount > 0) MaterialTheme.colorScheme.error else Color(0xFF2E7D32)
+                            color = if (sessionSummary.skippedCount > 0) Color(0xFFE65100) else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     Column(modifier = Modifier.weight(1f)) {
@@ -262,83 +661,9 @@ fun ReplayDashboardScreen() {
             }
         }
 
-        // --- 2. Manual Immediate Push Action ---
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = {
-                        if (isSyncing) return@Button
-                        isSyncing = true
-                        syncProgressMessage = "Initiating push to desk board..."
-
-                        scope.launch {
-                            val result = withContext(Dispatchers.IO) {
-                                ReplaySyncExecutor.executeSync(
-                                    context = context,
-                                    ignorePresence = true,
-                                    triggerSource = "MANUAL_UI"
-                                ) { progress ->
-                                    scope.launch(Dispatchers.Main) {
-                                        syncProgressMessage = progress
-                                    }
-                                }
-                            }
-
-                            isSyncing = false
-                            if (result.isSuccess) {
-                                val bytes = result.getOrDefault(0)
-                                val ack = prefs.getString("last_ack_response", "") ?: ""
-                                val targetName = prefs.getString("last_device_name", "KMSP-Runway-Office") ?: "KMSP-Runway-Office"
-                                syncProgressMessage = "SUCCESS: Confirmed by $targetName ($bytes B)!\nACK: $ack"
-                                Toast.makeText(context, "Sync complete ($bytes bytes)!", Toast.LENGTH_SHORT).show()
-                            } else {
-                                val err = result.exceptionOrNull()?.message ?: "Unknown error"
-                                syncProgressMessage = "FAILED: $err"
-                                Toast.makeText(context, "Sync failed: $err", Toast.LENGTH_LONG).show()
-                            }
-                            diagnosticEntries = DiagnosticsRepository.getEntries(context)
-                            sessionSummary = DiagnosticsRepository.getSessionSummary(context)
-                            ExactAlarmReceiver.scheduleNextSync(context)
-                        }
-                    },
-                    enabled = !isSyncing,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    if (isSyncing) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onPrimary
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(text = "Syncing with Desk Board...")
-                    } else {
-                        Text(text = "Sync Now (Push to Desk Board)")
-                    }
-                }
-
-                if (syncProgressMessage.isNotBlank()) {
-                    Text(
-                        text = syncProgressMessage,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = when {
-                            syncProgressMessage.startsWith("SUCCESS") -> Color(0xFF2E7D32)
-                            syncProgressMessage.startsWith("FAILED") -> MaterialTheme.colorScheme.error
-                            else -> MaterialTheme.colorScheme.primary
-                        },
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
-                }
-
-                Text(
-                    text = "Background Auto-Sync: Every 30 mins (Active via Exact RTC Wake Alarm)",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.outline
-                )
-            }
-        }
-
-        // --- 3. Chronological Sync History & Flight Audit ---
+        // =====================================================================
+        // --- 4. Chronological Sync History & Flight Audit ---
+        // =====================================================================
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
@@ -362,37 +687,12 @@ fun ReplayDashboardScreen() {
             }
         }
 
-        // --- 4. Presence & Mode Selector Card ---
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(text = "Geofencing & Sync Policy", fontWeight = FontWeight.SemiBold)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(
-                        selected = (selectedMode == SyncMode.HOME_TEST),
-                        onClick = {
-                            selectedMode = SyncMode.HOME_TEST
-                            PresenceEngine.setMode(SyncMode.HOME_TEST, save = true, context = context)
-                        }
-                    )
-                    Text("Home Test Mode (24/7 uninhibited)")
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(
-                        selected = (selectedMode == SyncMode.OFFICE_PROD),
-                        onClick = {
-                            selectedMode = SyncMode.OFFICE_PROD
-                            PresenceEngine.setMode(SyncMode.OFFICE_PROD, save = true, context = context)
-                        }
-                    )
-                    Text("Office Mode (Work Hours + Ambient Wi-Fi)")
-                }
-            }
-        }
-
+        // =====================================================================
         // --- 5. Connection Settings Card ---
+        // =====================================================================
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(text = "Connection Settings", fontWeight = FontWeight.SemiBold)
+                Text(text = "⚙️ Connection Settings", fontWeight = FontWeight.SemiBold)
                 OutlinedTextField(
                     value = backendUrl,
                     onValueChange = {
@@ -414,10 +714,12 @@ fun ReplayDashboardScreen() {
             }
         }
 
+        // =====================================================================
         // --- 6. Connectivity Bench Diagnostics ---
+        // =====================================================================
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(text = "Hardware Diagnostic Checks", fontWeight = FontWeight.SemiBold)
+                Text(text = "🛠️ Hardware Diagnostic Checks", fontWeight = FontWeight.SemiBold)
 
                 // 1. Backend Connectivity Test
                 Button(
@@ -495,11 +797,19 @@ fun ReplayDashboardScreen() {
 @Composable
 fun DiagnosticEntryCard(syncNumber: Int, entry: SyncDiagnosticEntry) {
     var expanded by remember { mutableStateOf(false) }
+    val isSkipped = entry.statusSummary.startsWith("SKIPPED")
 
     val statusColor = when {
         entry.isSuccess -> Color(0xFF2E7D32)
+        isSkipped -> Color(0xFFE65100)
         entry.isIntervalDelayed -> Color(0xFFE65100)
         else -> MaterialTheme.colorScheme.error
+    }
+
+    val statusBadge = when {
+        entry.isSuccess -> "VERIFIED"
+        isSkipped -> "SKIPPED (AWAY)"
+        else -> "FAILED"
     }
 
     Card(
@@ -525,7 +835,7 @@ fun DiagnosticEntryCard(syncNumber: Int, entry: SyncDiagnosticEntry) {
                     fontSize = 14.sp
                 )
                 Text(
-                    text = if (entry.isSuccess) "VERIFIED" else "FAILED",
+                    text = statusBadge,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = statusColor
@@ -556,85 +866,94 @@ fun DiagnosticEntryCard(syncNumber: Int, entry: SyncDiagnosticEntry) {
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
-            // Pipeline Step 1: Backend Capture
-            Text(
-                text = "1. Pi Capture: Batch ${entry.batchId} (${entry.flightCount} flights, ${entry.wirePayloadBytes} B, chrono: ${if (entry.isChronological) "PASS" else "FAIL"})",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium
-            )
-
-            // Pipeline Step 2: BLE Transport
-            Text(
-                text = "2. BLE Push: ${entry.connectionMethod} to ${entry.targetMac} (${entry.bleBytesTransferred} B, MTU ${entry.bleMtu}, connect: ${entry.bleConnectDurationMs}ms)",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium
-            )
-
-            // Pipeline Step 3: Hardware ACK Verification
-            if (entry.ackReceived) {
+            if (isSkipped) {
                 Text(
-                    text = "3. Desk Board ACK: Batch match: ${if (entry.isBatchVerified) "PASS" else "FAIL"} | Ops match: ${if (entry.isOpsVerified) "PASS" else "FAIL"} | Free Heap: ${entry.ackFreeHeap / 1024} KB",
+                    text = "Geofence Policy: ${entry.statusSummary}",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
-                    color = if (entry.isBatchVerified && entry.isOpsVerified) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error
+                    color = Color(0xFFE65100)
                 )
-            }
-
-            if (entry.flightSummaryText.isNotBlank()) {
+            } else {
+                // Pipeline Step 1: Backend Capture
                 Text(
-                    text = "Flights: ${entry.flightSummaryText}",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(top = 2.dp)
-                )
-            }
-
-            if (entry.errorMessage != null) {
-                Text(
-                    text = "Error: ${entry.errorMessage}",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.error,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-
-            // Expandable Flight List Toggle
-            if (entry.flights.isNotEmpty()) {
-                Text(
-                    text = if (expanded) "▲ Hide Full Flight Schedule" else "▼ View All ${entry.flights.size} Flights",
+                    text = "1. Pi Capture: Batch ${entry.batchId} (${entry.flightCount} flights, ${entry.wirePayloadBytes} B, chrono: ${if (entry.isChronological) "PASS" else "FAIL"})",
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier
-                        .clickable { expanded = !expanded }
-                        .padding(top = 4.dp)
+                    fontWeight = FontWeight.Medium
                 )
 
-                if (expanded) {
-                    Column(
+                // Pipeline Step 2: BLE Transport
+                Text(
+                    text = "2. BLE Push: ${entry.connectionMethod} to ${entry.targetMac} (${entry.bleBytesTransferred} B, MTU ${entry.bleMtu}, connect: ${entry.bleConnectDurationMs}ms)",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
+
+                // Pipeline Step 3: Hardware ACK Verification
+                if (entry.ackReceived) {
+                    Text(
+                        text = "3. Desk Board ACK: Batch match: ${if (entry.isBatchVerified) "PASS" else "FAIL"} | Ops match: ${if (entry.isOpsVerified) "PASS" else "FAIL"} | Free Heap: ${entry.ackFreeHeap / 1024} KB",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = if (entry.isBatchVerified && entry.isOpsVerified) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error
+                    )
+                }
+
+                if (entry.flightSummaryText.isNotBlank()) {
+                    Text(
+                        text = "Flights: ${entry.flightSummaryText}",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
+
+                if (entry.errorMessage != null) {
+                    Text(
+                        text = "Error: ${entry.errorMessage}",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                // Expandable Flight List Toggle
+                if (entry.flights.isNotEmpty()) {
+                    Text(
+                        text = if (expanded) "▲ Hide Full Flight Schedule" else "▼ View All ${entry.flights.size} Flights",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold,
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(4.dp))
-                            .padding(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        entry.flights.forEach { flight ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    text = "+${flight.offsetSec}s  ${flight.callsign} (${flight.flightLabel})",
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    text = "RW ${flight.runway} ${flight.action} [${flight.aircraftType}]",
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = if (flight.action == "TAKEOFF") Color(0xFF1976D2) else Color(0xFF388E3C)
-                                )
+                            .clickable { expanded = !expanded }
+                            .padding(top = 4.dp)
+                    )
+
+                    if (expanded) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(4.dp))
+                                .padding(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            entry.flights.forEach { flight ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "+${flight.offsetSec}s  ${flight.callsign} (${flight.flightLabel})",
+                                        fontSize = 11.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = "RW ${flight.runway} ${flight.action} [${flight.aircraftType}]",
+                                        fontSize = 11.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = if (flight.action == "TAKEOFF") Color(0xFF1976D2) else Color(0xFF388E3C)
+                                    )
+                                }
                             }
                         }
                     }

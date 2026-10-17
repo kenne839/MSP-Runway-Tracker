@@ -21,7 +21,9 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) {
         checkBatteryOptimizations()
-        ExactAlarmReceiver.scheduleNextSync(this)
+        if (ExactAlarmReceiver.isAutoSyncEnabled(this)) {
+            ExactAlarmReceiver.scheduleNextSync(this)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -54,7 +56,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Location permission for passive Wi-Fi discovery
+        // Location permission for Wi-Fi SSID geofencing & ambient scans
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             permissionsToRequest.add(Manifest.permission.ACCESS_FINE_LOCATION)
         }
@@ -63,7 +65,9 @@ class MainActivity : ComponentActivity() {
             permissionLauncher.launch(permissionsToRequest.toTypedArray())
         } else {
             checkBatteryOptimizations()
-            ExactAlarmReceiver.scheduleNextSync(this)
+            if (ExactAlarmReceiver.isAutoSyncEnabled(this)) {
+                ExactAlarmReceiver.scheduleNextSync(this)
+            }
         }
     }
 
@@ -83,4 +87,3 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-

@@ -216,6 +216,7 @@ data class DiagnosticSessionSummary(
     val totalAttempts: Int,
     val successfulSyncs: Int,
     val failedSyncs: Int,
+    val skippedCount: Int = 0,
     val successRatePct: Int,
     val delayedSyncCount: Int,
     val totalFlightsVerified: Int,
@@ -350,8 +351,10 @@ object DiagnosticsRepository {
 
             val totalAttempts = entries.size
             val successfulSyncs = entries.count { it.isSuccess }
-            val failedSyncs = totalAttempts - successfulSyncs
-            val successRatePct = if (totalAttempts > 0) (successfulSyncs * 100 / totalAttempts) else 100
+            val skippedCount = entries.count { it.statusSummary.startsWith("SKIPPED") }
+            val failedSyncs = totalAttempts - successfulSyncs - skippedCount
+            val attemptedSyncs = totalAttempts - skippedCount
+            val successRatePct = if (attemptedSyncs > 0) (successfulSyncs * 100 / attemptedSyncs) else if (successfulSyncs > 0) 100 else 100
             val delayedSyncCount = entries.count { it.isIntervalDelayed }
 
             val totalFlights = entries.filter { it.isSuccess }.sumOf { it.flightCount }
@@ -372,6 +375,7 @@ object DiagnosticsRepository {
                 totalAttempts = totalAttempts,
                 successfulSyncs = successfulSyncs,
                 failedSyncs = failedSyncs,
+                skippedCount = skippedCount,
                 successRatePct = successRatePct,
                 delayedSyncCount = delayedSyncCount,
                 totalFlightsVerified = totalFlights,
@@ -397,6 +401,10 @@ object DiagnosticsRepository {
         sb.appendLine("- **Test Duration**: ${summary.sessionDurationFormatted}")
         sb.appendLine("- **Total Sync Attempts**: ${summary.totalAttempts}")
         sb.appendLine("- **Successful Syncs**: ${summary.successfulSyncs} / ${summary.totalAttempts} (${summary.successRatePct}%)")
+        if (summary.skippedCount > 0) {
+            sb.appendLine("- **Geofence Inhibited (Away)**: ${summary.skippedCount}")
+        }
+        sb.appendLine("- **Failed Syncs**: ${summary.failedSyncs}")
         sb.appendLine("- **Delayed / Missed Syncs (>35m)**: ${summary.delayedSyncCount}")
         sb.appendLine("- **Total Flight Operations Verified**: ${summary.totalFlightsVerified}")
         sb.appendLine("- **Total BLE Transferred**: ${summary.totalBytesTransferred} bytes")
